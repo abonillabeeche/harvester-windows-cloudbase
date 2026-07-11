@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="utf-8"?>
+<unattend xmlns="urn:schemas-microsoft-com:unattend">
+  <settings pass="windowsPE">
+    <component name="Microsoft-Windows-International-Core-WinPE" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <SetupUILanguage><UILanguage>en-US</UILanguage></SetupUILanguage>
+      <InputLocale>en-US</InputLocale>
+      <SystemLocale>en-US</SystemLocale>
+      <UILanguage>en-US</UILanguage>
+      <UserLocale>en-US</UserLocale>
+    </component>
+    <component name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+%{ if enable_win11_bypass_checks ~}
+      <RunSynchronous>
+        <RunSynchronousCommand wcm:action="add"><Order>1</Order><Path>reg add HKLM\System\Setup\LabConfig /v BypassTPMCheck /t REG_DWORD /d 1 /f</Path></RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add"><Order>2</Order><Path>reg add HKLM\System\Setup\LabConfig /v BypassSecureBootCheck /t REG_DWORD /d 1 /f</Path></RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add"><Order>3</Order><Path>reg add HKLM\System\Setup\LabConfig /v BypassCPUCheck /t REG_DWORD /d 1 /f</Path></RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add"><Order>4</Order><Path>reg add HKLM\System\Setup\LabConfig /v BypassRAMCheck /t REG_DWORD /d 1 /f</Path></RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add"><Order>5</Order><Path>reg add HKLM\System\Setup\LabConfig /v BypassStorageCheck /t REG_DWORD /d 1 /f</Path></RunSynchronousCommand>
+      </RunSynchronous>
+%{ endif ~}
+      <DiskConfiguration>
+        <WillShowUI>OnError</WillShowUI>
+        <Disk wcm:action="add">
+          <CreatePartitions>
+%{ if enable_efi_tpm ~}
+            <CreatePartition wcm:action="add"><Order>1</Order><Type>EFI</Type><Size>300</Size></CreatePartition>
+            <CreatePartition wcm:action="add"><Order>2</Order><Type>MSR</Type><Size>128</Size></CreatePartition>
+            <CreatePartition wcm:action="add"><Order>3</Order><Extend>true</Extend><Type>Primary</Type></CreatePartition>
+%{ else ~}
+            <CreatePartition wcm:action="add"><Order>1</Order><Type>Primary</Type><Size>500</Size></CreatePartition>
+            <CreatePartition wcm:action="add"><Order>2</Order><Extend>true</Extend><Type>Primary</Type></CreatePartition>
+%{ endif ~}
+          </CreatePartitions>
+          <ModifyPartitions>
+%{ if enable_efi_tpm ~}
+            <ModifyPartition wcm:action="add"><Format>FAT32</Format><Label>System</Label><Order>1</Order><PartitionID>1</PartitionID></ModifyPartition>
+            <ModifyPartition wcm:action="add"><Order>2</Order><PartitionID>2</PartitionID></ModifyPartition>
+            <ModifyPartition wcm:action="add"><Format>NTFS</Format><Label>Windows</Label><Letter>C</Letter><Order>3</Order><PartitionID>3</PartitionID></ModifyPartition>
+%{ else ~}
+            <ModifyPartition wcm:action="add"><Active>true</Active><Format>NTFS</Format><Label>System</Label><Order>1</Order><PartitionID>1</PartitionID></ModifyPartition>
+            <ModifyPartition wcm:action="add"><Format>NTFS</Format><Label>Windows</Label><Letter>C</Letter><Order>2</Order><PartitionID>2</PartitionID></ModifyPartition>
+%{ endif ~}
+          </ModifyPartitions>
+          <DiskID>0</DiskID>
+          <WillWipeDisk>true</WillWipeDisk>
+        </Disk>
+      </DiskConfiguration>
+      <ImageInstall>
+        <OSImage>
+          <InstallFrom>
+            <MetaData wcm:action="add">
+              <Key>/IMAGE/NAME</Key>
+              <Value>${windows_edition}</Value>
+            </MetaData>
+          </InstallFrom>
+          <InstallTo><DiskID>0</DiskID><PartitionID>${enable_efi_tpm ? 3 : 2}</PartitionID></InstallTo>
+        </OSImage>
+      </ImageInstall>
+      <UserData>
+%{ if windows_product_key != "" ~}
+        <ProductKey>
+          <Key>${windows_product_key}</Key>
+          <WillShowUI>OnError</WillShowUI>
+        </ProductKey>
+%{ endif ~}
+        <AcceptEula>true</AcceptEula>
+        <FullName>Administrator</FullName>
+        <Organization>SUSE</Organization>
+      </UserData>
+    </component>
+  </settings>
+%{ if enable_win11_bypass_checks ~}
+
+  <settings pass="specialize">
+    <component name="Microsoft-Windows-Deployment" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <RunSynchronous>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>1</Order>
+          <Path>reg add HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OOBE /v BypassNRO /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+      </RunSynchronous>
+    </component>
+  </settings>
+%{ endif ~}
+
+  <settings pass="oobeSystem">
+    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <AutoLogon>
+        <Enabled>true</Enabled>
+        <LogonCount>2</LogonCount>
+        <Password>
+          <Value>${admin_password}</Value>
+          <PlainText>true</PlainText>
+        </Password>
+        <Username>Administrator</Username>
+      </AutoLogon>
+      <FirstLogonCommands>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>cmd /c "for %d in (D E F G H I) do if exist %d:\bootstrap.ps1 powershell.exe -NoProfile -ExecutionPolicy Bypass -File %d:\bootstrap.ps1"</CommandLine>
+          <Description>run winbuild bootstrap</Description>
+          <Order>1</Order>
+        </SynchronousCommand>
+      </FirstLogonCommands>
+      <OOBE>
+        <HideEULAPage>true</HideEULAPage>
+        <HideOEMRegistrationScreen>true</HideOEMRegistrationScreen>
+%{ if enable_efi_tpm ~}
+        <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
+%{ endif ~}
+        <SkipMachineOOBE>true</SkipMachineOOBE>
+        <SkipUserOOBE>true</SkipUserOOBE>
+      </OOBE>
+      <RegisteredOrganization>SUSE</RegisteredOrganization>
+      <RegisteredOwner>Administrator</RegisteredOwner>
+      <TimeZone>UTC</TimeZone>
+      <UserAccounts>
+        <AdministratorPassword>
+          <Value>${admin_password}</Value>
+          <PlainText>true</PlainText>
+        </AdministratorPassword>
+      </UserAccounts>
+    </component>
+    <component name="Microsoft-Windows-International-Core" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <InputLocale>en-US</InputLocale>
+      <SystemLocale>en-US</SystemLocale>
+      <UILanguage>en-US</UILanguage>
+      <UserLocale>en-US</UserLocale>
+    </component>
+  </settings>
+</unattend>

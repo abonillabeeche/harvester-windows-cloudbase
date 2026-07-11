@@ -1,0 +1,115 @@
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: win11build
+  namespace: default
+  labels:
+    harvesterhci.io/creator: harvester
+    harvesterhci.io/os: windows
+  annotations:
+    harvesterhci.io/reservedMemory: 256Mi
+    harvesterhci.io/volumeClaimTemplates: |-
+      [{
+        "metadata": {
+          "name": "win11build-iso",
+          "annotations": {
+            "harvesterhci.io/imageId": "default/image-wpf76"
+          }
+        },
+        "spec": {
+          "accessModes": ["ReadWriteMany"],
+          "resources": {"requests": {"storage": "20Gi"}},
+          "volumeMode": "Block",
+          "storageClassName": "lvm-thin"
+        }
+      },
+      {
+        "metadata": {
+          "name": "win11build-rootdisk"
+        },
+        "spec": {
+          "accessModes": ["ReadWriteMany"],
+          "resources": {"requests": {"storage": "64Gi"}},
+          "volumeMode": "Block",
+          "storageClassName": "lvm-thin"
+        }
+      }]
+spec:
+  runStrategy: RerunOnFailure
+  template:
+    metadata:
+      labels:
+        harvesterhci.io/vmName: win11build
+    spec:
+      domain:
+        firmware:
+          bootloader:
+            efi:
+              secureBoot: true
+        cpu:
+          cores: 4
+        features:
+          acpi: {enabled: true}
+          apic: {enabled: true}
+          smm:  {enabled: true}
+          hyperv:
+            relaxed:    {enabled: true}
+            vapic:      {enabled: true}
+            spinlocks:  {enabled: true, spinlocks: 8191}
+            vpindex:    {enabled: true}
+            synic:      {enabled: true}
+            synictimer: {enabled: true}
+            ipi:        {enabled: true}
+            runtime:    {enabled: true}
+            reset:      {enabled: true}
+        clock:
+          utc: {}
+          timer:
+            hpet:   {present: false}
+            hyperv: {present: true}
+            pit:    {tickPolicy: delay}
+            rtc:    {tickPolicy: catchup}
+        devices:
+          tpm: {}
+          disks:
+          - cdrom: {bus: sata}
+            name: windows-iso
+            bootOrder: 1
+          - disk: {bus: sata}
+            name: rootdisk
+            bootOrder: 2
+          - cdrom: {bus: sata}
+            name: virtio-container-disk
+          - cdrom: {bus: sata}
+            name: sysprep
+          interfaces:
+          - name: default
+            masquerade: {}
+            model: e1000
+          inputs:
+          - bus: usb
+            name: tablet
+            type: tablet
+        resources:
+          limits:
+            memory: 8Gi
+            cpu: 4
+      evictionStrategy: LiveMigrateIfPossible
+      networks:
+      - name: default
+        pod: {}
+      volumes:
+      - name: windows-iso
+        persistentVolumeClaim:
+          claimName: win11build-iso
+      - name: rootdisk
+        persistentVolumeClaim:
+          claimName: win11build-rootdisk
+      - name: virtio-container-disk
+        containerDisk:
+          image: registry.suse.com/suse/vmdp/vmdp:2.5.5
+          imagePullPolicy: IfNotPresent
+      - name: sysprep
+        sysprep:
+          secret:
+            name: win11build-unattend

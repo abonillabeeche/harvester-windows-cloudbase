@@ -1,0 +1,11 @@
+apiVersion: harvesterhci.io/v1beta1
+kind: VirtualMachineImage
+metadata:
+  name: win2022-cloudbase
+  namespace: default
+spec:
+  displayName: win2022-cloudbase
+  backend: cdi
+  sourceType: export-from-volume
+  pvcName: winbuild-rootdisk
+  pvcNamespace: default
