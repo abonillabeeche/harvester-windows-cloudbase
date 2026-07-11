@@ -2,17 +2,15 @@ provider "kubernetes" {
   config_path = pathexpand(var.kubeconfig)
 }
 
+provider "kubectl" {
+  config_path      = pathexpand(var.kubeconfig)
+  load_config_file = true
+}
+
 locals {
   build_vm_name = "winbuild-tf"
   is_win11      = var.enable_efi_tpm
 
-  iso_ns   = split("/", var.windows_iso_image_ref)[0]
-  iso_name = split("/", var.windows_iso_image_ref)[1]
-
-  # Autounattend + bootstrap.ps1 are rendered from templates so that the
-  # Windows edition, product key, bypass keys, and admin password all flow
-  # from Terraform variables. Rendered content is embedded in a KubeVirt
-  # sysprep-volume Secret.
   autounattend = templatefile("${path.module}/autounattend.xml.tftpl", {
     windows_edition            = var.windows_edition
     windows_product_key        = var.windows_product_key
@@ -50,31 +48,8 @@ locals {
       }
     },
   ])
-}
 
-# ---------------------------------------------------------------------------
-# 1. Sysprep secret carrying the rendered Autounattend.xml and bootstrap.ps1.
-#    KubeVirt turns this into a CD-ROM ISO with both files at the root.
-# ---------------------------------------------------------------------------
-resource "kubernetes_secret" "unattend" {
-  metadata {
-    name      = "${local.build_vm_name}-unattend"
-    namespace = var.namespace
-  }
-  data = {
-    "autounattend.xml" = local.autounattend
-    "bootstrap.ps1"    = local.bootstrap
-  }
-}
-
-# ---------------------------------------------------------------------------
-# 2. Build VM. Windows ISO + VMDP container disk + sysprep CD-ROM + empty
-#    rootdisk (which becomes the golden image after sysprep). SATA rootdisk
-#    during build (built-in Windows drivers); consumer VMs can use virtio-scsi
-#    after the image is captured because VMDP installs virtio drivers.
-# ---------------------------------------------------------------------------
-resource "kubernetes_manifest" "build_vm" {
-  manifest = {
+  build_vm_yaml = yamlencode({
     apiVersion = "kubevirt.io/v1"
     kind       = "VirtualMachine"
     metadata = {
@@ -85,88 +60,78 @@ resource "kubernetes_manifest" "build_vm" {
         "harvesterhci.io/os"      = "windows"
       }
       annotations = {
-        "harvesterhci.io/reservedMemory"        = "256Mi"
-        "harvesterhci.io/volumeClaimTemplates"  = local.volume_claim_templates
+        "harvesterhci.io/reservedMemory"       = "256Mi"
+        "harvesterhci.io/volumeClaimTemplates" = local.volume_claim_templates
       }
     }
     spec = {
       runStrategy = "RerunOnFailure"
       template = {
         metadata = { labels = { "harvesterhci.io/vmName" = local.build_vm_name } }
-        spec = {
-          evictionStrategy = "LiveMigrateIfPossible"
-          domain = {
-            firmware = local.is_win11 ? {
-              bootloader = { efi = { secureBoot = true } }
-            } : null
-            cpu = { cores = var.cpu_cores }
-            features = {
-              acpi = { enabled = true }
-              apic = { enabled = true }
-              smm  = { enabled = true }
-              hyperv = {
-                relaxed    = { enabled = true }
-                vapic      = { enabled = true }
-                spinlocks  = { enabled = true, spinlocks = 8191 }
-                vpindex    = { enabled = true }
-                synic      = { enabled = true }
-                synictimer = { enabled = true }
-                ipi        = { enabled = true }
-                runtime    = { enabled = true }
-                reset      = { enabled = true }
-              }
-            }
-            clock = {
-              utc = {}
-              timer = {
-                hpet   = { present = false }
-                hyperv = { present = true }
-                pit    = { tickPolicy = "delay" }
-                rtc    = { tickPolicy = "catchup" }
-              }
-            }
-            devices = merge(
-              local.is_win11 ? { tpm = {} } : {},
+        spec = merge(
+          {
+            evictionStrategy = "LiveMigrateIfPossible"
+            domain = merge(
+              local.is_win11 ? {
+                firmware = { bootloader = { efi = { secureBoot = true } } }
+              } : {},
               {
-                disks = [
-                  { cdrom = { bus = "sata" }, name = "windows-iso", bootOrder = 1 },
-                  { disk  = { bus = "sata" }, name = "rootdisk",    bootOrder = 2 },
-                  { cdrom = { bus = "sata" }, name = "virtio-container-disk" },
-                  { cdrom = { bus = "sata" }, name = "sysprep" },
-                ]
-                interfaces = [{ name = "default", masquerade = {}, model = "e1000" }]
-                inputs     = [{ bus = "usb", name = "tablet", type = "tablet" }]
+                cpu = { cores = var.cpu_cores }
+                features = {
+                  acpi = { enabled = true }
+                  apic = { enabled = true }
+                  smm  = { enabled = true }
+                  hyperv = {
+                    relaxed    = { enabled = true }
+                    vapic      = { enabled = true }
+                    spinlocks  = { enabled = true, spinlocks = 8191 }
+                    vpindex    = { enabled = true }
+                    synic      = { enabled = true }
+                    synictimer = { enabled = true }
+                    ipi        = { enabled = true }
+                    runtime    = { enabled = true }
+                    reset      = { enabled = true }
+                  }
+                }
+                clock = {
+                  utc = {}
+                  timer = {
+                    hpet   = { present = false }
+                    hyperv = { present = true }
+                    pit    = { tickPolicy = "delay" }
+                    rtc    = { tickPolicy = "catchup" }
+                  }
+                }
+                devices = merge(
+                  local.is_win11 ? { tpm = {} } : {},
+                  {
+                    disks = [
+                      { cdrom = { bus = "sata" }, name = "windows-iso", bootOrder = 1 },
+                      { disk  = { bus = "sata" }, name = "rootdisk",    bootOrder = 2 },
+                      { cdrom = { bus = "sata" }, name = "virtio-container-disk" },
+                      { cdrom = { bus = "sata" }, name = "sysprep" },
+                    ]
+                    interfaces = [{ name = "default", masquerade = {}, model = "e1000" }]
+                    inputs     = [{ bus = "usb", name = "tablet", type = "tablet" }]
+                  },
+                )
+                resources = { limits = { cpu = tostring(var.cpu_cores), memory = "${var.memory_gib}Gi" } }
               },
             )
-            resources = {
-              limits = {
-                cpu    = tostring(var.cpu_cores)
-                memory = "${var.memory_gib}Gi"
-              }
-            }
-          }
-          networks = [{ name = "default", pod = {} }]
-          volumes = [
-            { name = "windows-iso",           persistentVolumeClaim = { claimName = "${local.build_vm_name}-iso" } },
-            { name = "rootdisk",              persistentVolumeClaim = { claimName = "${local.build_vm_name}-rootdisk" } },
-            { name = "virtio-container-disk", containerDisk = { image = var.vmdp_container_image, imagePullPolicy = "IfNotPresent" } },
-            { name = "sysprep",               sysprep = { secret = { name = kubernetes_secret.unattend.metadata[0].name } } },
-          ]
-        }
+            networks = [{ name = "default", pod = {} }]
+            volumes = [
+              { name = "windows-iso",           persistentVolumeClaim = { claimName = "${local.build_vm_name}-iso" } },
+              { name = "rootdisk",              persistentVolumeClaim = { claimName = "${local.build_vm_name}-rootdisk" } },
+              { name = "virtio-container-disk", containerDisk = { image = var.vmdp_container_image, imagePullPolicy = "IfNotPresent" } },
+              { name = "sysprep",               sysprep = { secret = { name = kubernetes_secret.unattend.metadata[0].name } } },
+            ]
+          },
+        )
       }
     }
-  }
-  wait {
-    fields = { "status.printableStatus" = "Stopped" }
-  }
-  timeouts { create = "${var.wait_for_stop_seconds}s" }
-}
+  })
 
-# ---------------------------------------------------------------------------
-# 3. Export the sysprepped rootdisk PVC as a VirtualMachineImage via CDI.
-# ---------------------------------------------------------------------------
-resource "kubernetes_manifest" "golden_image" {
-  manifest = {
+  export_image_yaml = yamlencode({
     apiVersion = "harvesterhci.io/v1beta1"
     kind       = "VirtualMachineImage"
     metadata = {
@@ -180,25 +145,69 @@ resource "kubernetes_manifest" "golden_image" {
       pvcName      = "${local.build_vm_name}-rootdisk"
       pvcNamespace = var.namespace
     }
-  }
-  depends_on = [kubernetes_manifest.build_vm]
-  wait {
-    condition {
-      type   = "Imported"
-      status = "True"
-    }
-  }
-  timeouts { create = "20m" }
+  })
 }
 
 # ---------------------------------------------------------------------------
-# 4. Optional post-image cleanup — remove the build VM + PVCs. Golden image
-#    is independent of the build resources once created.
+# Sysprep secret carrying the rendered Autounattend.xml + bootstrap.ps1.
+# KubeVirt mounts this as a CD-ROM ISO with both files at the root.
+# ---------------------------------------------------------------------------
+resource "kubernetes_secret" "unattend" {
+  metadata {
+    name      = "${local.build_vm_name}-unattend"
+    namespace = var.namespace
+  }
+  data = {
+    "autounattend.xml" = local.autounattend
+    "bootstrap.ps1"    = local.bootstrap
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Build VM. Waits for status.printableStatus=Stopped (sysprep completed).
+# ---------------------------------------------------------------------------
+resource "kubectl_manifest" "build_vm" {
+  yaml_body = local.build_vm_yaml
+}
+
+# kubectl_manifest doesn't support field-value waits for arbitrary CRDs, so
+# poll status.printableStatus via `kubectl wait` in a null_resource. Windows
+# install + VMDP + CBI + sysprep is 20-25 min. Give plenty of headroom.
+resource "null_resource" "wait_build_vm_stopped" {
+  depends_on = [kubectl_manifest.build_vm]
+  triggers   = { build_vm_id = kubectl_manifest.build_vm.uid }
+  provisioner "local-exec" {
+    command     = "kubectl --kubeconfig ${pathexpand(var.kubeconfig)} -n ${var.namespace} wait --for=jsonpath='{.status.printableStatus}'=Stopped vm/${local.build_vm_name} --timeout=${var.wait_for_stop_seconds}s"
+    interpreter = ["bash", "-lc"]
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Export the sysprepped rootdisk PVC as a VirtualMachineImage via CDI.
+# ---------------------------------------------------------------------------
+resource "kubectl_manifest" "golden_image" {
+  yaml_body  = local.export_image_yaml
+  depends_on = [null_resource.wait_build_vm_stopped]
+}
+
+resource "null_resource" "wait_image_imported" {
+  depends_on = [kubectl_manifest.golden_image]
+  triggers   = { image_id = kubectl_manifest.golden_image.uid }
+  provisioner "local-exec" {
+    command     = "kubectl --kubeconfig ${pathexpand(var.kubeconfig)} -n ${var.namespace} wait --for=jsonpath='{.status.conditions[?(@.type==\"Imported\")].status}'=True virtualmachineimage/${var.output_image_name} --timeout=20m"
+    interpreter = ["bash", "-lc"]
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Optional post-image settle. The golden image is independent of the build
+# resources once created — you can `terraform destroy -target=kubectl_manifest.build_vm`
+# to clean up the build VM while keeping the image.
 # ---------------------------------------------------------------------------
 resource "time_sleep" "settle_after_image" {
   count           = var.cleanup_build_vm ? 1 : 0
   create_duration = "10s"
-  depends_on      = [kubernetes_manifest.golden_image]
+  depends_on      = [null_resource.wait_image_imported]
 }
 
 output "image_name" {
