@@ -182,8 +182,28 @@ resource "null_resource" "wait_build_vm_stopped" {
   depends_on = [kubectl_manifest.build_vm]
   triggers   = { build_vm_id = kubectl_manifest.build_vm.uid }
   provisioner "local-exec" {
-    command     = "kubectl --kubeconfig ${pathexpand(var.kubeconfig)} -n ${var.namespace} wait --for=jsonpath='{.status.printableStatus}'=Stopped vm/${local.build_vm_name} --timeout=${var.wait_for_stop_seconds}s"
-    interpreter = ["bash", "-lc"]
+    # `kubectl wait --for=jsonpath` sometimes returns "condition met" on a
+    # freshly-created CR whose status subresource isn't populated yet, so
+    # we roll our own polling loop that only counts a real "Stopped" match.
+    command     = <<-EOT
+      KC="${pathexpand(var.kubeconfig)}"
+      NS="${var.namespace}"
+      NAME="${local.build_vm_name}"
+      MAX=${var.wait_for_stop_seconds}
+      START=$(date +%s)
+      while :; do
+        NOW=$(date +%s); ELAPSED=$((NOW - START))
+        if [ $ELAPSED -ge $MAX ]; then echo "TIMEOUT after $${ELAPSED}s"; exit 1; fi
+        STATUS=$(kubectl --kubeconfig "$KC" -n "$NS" get vm "$NAME" -o jsonpath='{.status.printableStatus}' 2>/dev/null || true)
+        if [ "$STATUS" = "Stopped" ]; then
+          echo "vm/$NAME reached Stopped after $${ELAPSED}s"
+          exit 0
+        fi
+        if [ $((ELAPSED % 60)) -lt 5 ]; then echo "[$${ELAPSED}s] vm/$NAME status=$${STATUS:-<empty>}"; fi
+        sleep 5
+      done
+    EOT
+    interpreter = ["bash", "-c"]
   }
 }
 
@@ -199,8 +219,26 @@ resource "null_resource" "wait_image_imported" {
   depends_on = [kubectl_manifest.golden_image]
   triggers   = { image_id = kubectl_manifest.golden_image.uid }
   provisioner "local-exec" {
-    command     = "kubectl --kubeconfig ${pathexpand(var.kubeconfig)} -n ${var.namespace} wait --for=jsonpath='{.status.conditions[?(@.type==\"Imported\")].status}'=True virtualmachineimage/${var.output_image_name} --timeout=20m"
-    interpreter = ["bash", "-lc"]
+    command     = <<-EOT
+      KC="${pathexpand(var.kubeconfig)}"
+      NS="${var.namespace}"
+      NAME="${var.output_image_name}"
+      MAX=1200  # 20 min
+      START=$(date +%s)
+      while :; do
+        NOW=$(date +%s); ELAPSED=$((NOW - START))
+        if [ $ELAPSED -ge $MAX ]; then echo "TIMEOUT after $${ELAPSED}s"; exit 1; fi
+        STATUS=$(kubectl --kubeconfig "$KC" -n "$NS" get virtualmachineimage "$NAME" -o jsonpath='{.status.conditions[?(@.type=="Imported")].status}' 2>/dev/null || true)
+        PROGRESS=$(kubectl --kubeconfig "$KC" -n "$NS" get virtualmachineimage "$NAME" -o jsonpath='{.status.progress}' 2>/dev/null || true)
+        if [ "$STATUS" = "True" ]; then
+          echo "virtualmachineimage/$NAME Imported=True after $${ELAPSED}s"
+          exit 0
+        fi
+        if [ $((ELAPSED % 60)) -lt 5 ]; then echo "[$${ELAPSED}s] image/$NAME imported=$${STATUS:-<empty>} progress=$${PROGRESS:-0}"; fi
+        sleep 5
+      done
+    EOT
+    interpreter = ["bash", "-c"]
   }
 }
 
