@@ -34,12 +34,23 @@ The SUSE VMDP driver ISO is already shipped as a KubeVirt container disk at `reg
 ```bash
 cd kubectl/
 
-# 1. Get the image ID of your uploaded Windows ISO
-kubectl get virtualmachineimage -A | grep -i server_eval  # or the name you used
-# note the metadata.name (e.g. image-l5hwf) and namespace (default)
+# 1. Find your uploaded Windows ISO. In Harvester every image has TWO names:
+#      * displayName  — what you see in the UI (e.g. "server_eval_x64fre_en-us.iso")
+#      * metadata.name — the short Kubernetes name (e.g. "image-l5hwf")
+#    The imageId annotation needs the SHORT name, prefixed with the namespace.
+kubectl get virtualmachineimage -A \
+  -o custom-columns='NAMESPACE:.metadata.namespace,NAME:.metadata.name,DISPLAY:.spec.displayName'
+#
+# NAMESPACE   NAME          DISPLAY
+# default     image-l5hwf   server_eval_x64fre_en-us.iso
+# default     image-wpf76   win11_23h2_english_x64v2.iso
 
-# 2. Edit winbuild-vm.yaml — change the imageId annotation to match your image
-#    "harvesterhci.io/imageId": "<namespace>/<image-name>"
+# 2. Edit winbuild-vm.yaml — replace the imageId annotation with your NAMESPACE/NAME.
+#    In the file, find this line:
+#         "harvesterhci.io/imageId": "default/image-l5hwf"
+#    Change "default/image-l5hwf" to your actual "<namespace>/<metadata.name>",
+#    for example "default/image-l5hwf" for the row shown above.
+#    macOS/Linux one-liner: sed -i.bak 's|default/image-l5hwf|default/image-l5hwf|' winbuild-vm.yaml
 
 # 3. Create the secret containing the unattend + bootstrap
 kubectl create secret generic winbuild-unattend \
@@ -49,7 +60,7 @@ kubectl create secret generic winbuild-unattend \
 # 4. Apply the build VM
 kubectl apply -f winbuild-vm.yaml
 
-# 5. Wait ~25 min for the VM to reach Stopped state
+# 5. Wait ~20 min for the VM to reach Stopped state
 kubectl wait --for=jsonpath='{.status.printableStatus}'=Stopped \
   vm/winbuild --timeout=45m
 
