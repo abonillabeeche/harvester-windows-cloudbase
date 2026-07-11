@@ -46,11 +46,12 @@ kubectl get virtualmachineimage -A \
 # default     image-wpf76   win11_23h2_english_x64v2.iso
 
 # 2. Edit winbuild-vm.yaml — replace the imageId annotation with your NAMESPACE/NAME.
-#    In the file, find this line:
+#    In the file, find this line in the volumeClaimTemplates annotation:
 #         "harvesterhci.io/imageId": "default/image-l5hwf"
-#    Change "default/image-l5hwf" to your actual "<namespace>/<metadata.name>",
-#    for example "default/image-l5hwf" for the row shown above.
-#    macOS/Linux one-liner: sed -i.bak 's|default/image-l5hwf|default/image-l5hwf|' winbuild-vm.yaml
+#    Change "default/image-l5hwf" to "<namespace>/<metadata.name>" from step 1.
+#    Harvester's CDI backend clones the ISO into a fresh PVC (winbuild-iso)
+#    which is then attached as the SATA CD-ROM. Direct-reference of the
+#    image PVC is blocked by Harvester's admission webhook.
 
 # 3. Create the secret containing the unattend + bootstrap
 kubectl create secret generic winbuild-unattend \

@@ -25,6 +25,11 @@ locals {
     cloudbase_init_msi_url = var.cloudbase_init_msi_url
   })
 
+  # Harvester's admission webhook forbids directly referencing an image
+  # source PVC in a VM ("golden image ... can't be used as a volume"),
+  # so we go through the standard imageId-annotation clone path. On
+  # lvm-thin the clone is intra-driver COW (fast); on longhorn it's a
+  # byte-stream copy (~5 min for a 5 GB Windows ISO).
   volume_claim_templates = jsonencode([
     {
       metadata = {
