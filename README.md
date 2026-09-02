@@ -27,13 +27,14 @@ The image ships with:
 | [`kubectl/`](kubectl/) | Copy-paste-apply build: answer files, `bootstrap.ps1`, build-VM + export manifests, and `build-answerfile.py` |
 | [`terraform/`](terraform/) | One `terraform apply` that templates, builds, waits, and exports |
 | [`shrink-export/`](shrink-export/) | A parameterized Job to compact/shrink any disk PVC and register it as an image |
-| [`docs/`](docs/) | Architecture, the v1.9 UI sysprep flow, sizing/export, and troubleshooting |
+| [`docs/`](docs/) | Architecture, per-version specifics, the v1.9 UI sysprep flow, sizing/export, and troubleshooting |
 
 ## Prerequisites
 
 1. A Harvester cluster (v1.8+).
-2. A Windows Server 2022 (or Windows 11) ISO uploaded as a Harvester Image
-   (**Images → Create → Upload**).
+2. A Windows Server 2022, Windows Server 2025 or Windows 11 ISO uploaded as a
+   Harvester Image (**Images → Create → Upload**). You must tell the build which
+   one you have — see **[docs/windows-versions.md](docs/windows-versions.md)**.
 3. `kubectl` with your Harvester kubeconfig (**Support → Download KubeConfig**).
 4. A StorageClass you have tested for VM volumes. **`harvester-longhorn` ships
    on every Harvester cluster** and is a safe default; substitute any class
@@ -100,7 +101,9 @@ second file, so we fold the script into the answer file:
 
 ```bash
 cd kubectl/
-./build-answerfile.py          # → Autounattend-selfcontained.xml
+./build-answerfile.py -w 2025      # → Autounattend-selfcontained-2025.xml
+#   -w 2022 | 2025 | w11 — required; it selects the /IMAGE/NAME edition string,
+#   which must match your ISO exactly. See docs/windows-versions.md.
 ```
 
 Then create the VM in the UI. **Start from the built-in
@@ -116,7 +119,7 @@ Steps:
 1. **Virtual Machines → Create → From Template →** `windows-iso-image-base-template`.
 2. On the CD-ROM (boot) disk, set the **Image** to your uploaded Windows ISO.
 3. On the **rootdisk (Volume tab)**, set the bus to **virtio-scsi**, reduce the
-   size to **32Gi** (it grows on deploy), and pick your tested StorageClass
+   size to **36Gi** (it grows on deploy), and pick your tested StorageClass
    (`harvester-longhorn` is fine). If that class is block/LVM-based it may be
    ReadWriteOnce-only — set the access mode to **Single-Node (ReadWriteOnce)**;
    the build VM is the disk's only consumer, so RWO is always sufficient.
@@ -124,7 +127,7 @@ Steps:
    install.
 5. **Advanced Options → set OS Type = `Windows`.** This is what makes the
    **Windows Unattended & Sysprep Configuration** section appear. Then
-   **Create New →** paste `Autounattend-selfcontained.xml`.
+   **Create New →** paste `Autounattend-selfcontained-<version>.xml`.
 6. **Create.** The VM installs, sypreps, and powers off (~20 min). Console log
    inside the VM: `C:\winbuild.log`.
 7. Capture the image: **Images → Create → from the build VM's rootdisk volume**
@@ -140,7 +143,7 @@ Steps:
 > Template names vary by cluster and version: `windows-iso-image-base-template`
 > is the stock built-in, but some clusters also ship sized variants
 > (`windows-iso-small` / `-medium` / `-large`). If none exist, build a blank VM
-> with a CD-ROM boot disk, a 32Gi virtio-scsi rootdisk, and a container-image
+> with a CD-ROM boot disk, a 36Gi virtio-scsi rootdisk, and a container-image
 > volume `registry.suse.com/suse/vmdp/vmdp:2.5.5` — that's the whole shape.
 
 Full detail — the single-key Secret model, the 1024-char `FirstLogonCommands`
@@ -167,20 +170,22 @@ kubectl get virtualmachineimage -A \
 #    ⚠ Using a generic StorageClass for the ISO clone yields an empty volume and
 #      "No Bootable Device". This is the #1 gotcha — see docs/troubleshooting.md.
 
-# 3a. Create the sysprep secret (TWO-FILE layout — simplest for kubectl):
+# 3a. Create the sysprep secret (TWO-FILE layout — simplest for kubectl).
+#     Pick the answer file for YOUR Windows version — the /IMAGE/NAME edition
+#     string in it must match your ISO. See docs/windows-versions.md.
 kubectl create secret generic winbuild-unattend \
-  --from-file=autounattend.xml=Autounattend.xml \
+  --from-file=autounattend.xml=Autounattend-2025.xml \
   --from-file=bootstrap.ps1=bootstrap.ps1
 
 # 3b. …OR the SINGLE-FILE layout, identical to what the Harvester v1.9 UI
 #     writes (one key). Generate it, then create the secret from it:
-./build-answerfile.py
+./build-answerfile.py -w 2025
 kubectl create secret generic winbuild-unattend \
-  --from-file=autounattend.xml=Autounattend-selfcontained.xml
-#   (or paste Autounattend-selfcontained.xml into the UI's
+  --from-file=autounattend.xml=Autounattend-selfcontained-2025.xml
+#   (or paste Autounattend-selfcontained-2025.xml into the UI's
 #    "Windows Unattended & Sysprep → Create New" form — see docs/ui-sysprep.md)
 
-# 4. Apply the build VM (virtio-scsi rootdisk, 32Gi, full Hyper-V enlightenments)
+# 4. Apply the build VM (virtio-scsi rootdisk, 36Gi, full Hyper-V enlightenments)
 kubectl apply -f winbuild-vm.yaml
 
 # 5. Wait for the VM to sysprep and power itself off (~20 min)
@@ -233,43 +238,53 @@ cd terraform/
 terraform init
 terraform apply -auto-approve \
   -var 'kubeconfig=~/.kube/harvester.yaml' \
+  -var 'windows_version=2025' \
   -var 'windows_iso_image_ref=default/image-xxxxx' \
-  -var 'iso_storage_class=longhorn-image-xxxxx' \
-  -var 'output_image_name=win2022-cloudbase'
+  -var 'iso_storage_class=longhorn-image-xxxxx'
 
-terraform output image_ref   # → default/win2022-cloudbase
+terraform output image_ref   # → default/win2025-cloudbase
 ```
+
+`windows_version` (`2022` | `2025` | `w11`) is required. Everything it implies —
+the `install.wim` edition string, the firmware and partition layout, the Win11
+compat-check bypasses and product key, the output image name — is derived from
+it and individually overridable. See
+[docs/windows-versions.md](docs/windows-versions.md).
 
 Key variables (full list in [`terraform/variables.tf`](terraform/variables.tf)):
 
 | Name | Default | Description |
 |---|---|---|
 | `kubeconfig` | `~/.kube/config` | Path to your Harvester kubeconfig |
+| `windows_version` | *required* | `2022`, `2025` or `w11` — drives every version-specific default below |
 | `windows_iso_image_ref` | *required* | `<namespace>/<image metadata.name>` of the ISO |
 | `iso_storage_class` | *required* | The ISO image's **own** StorageClass (`longhorn-<image-name>`) |
-| `windows_edition` | `Windows Server 2022 SERVERSTANDARD` | Edition inside `install.wim` |
-| `output_image_name` | `win2022-cloudbase` | Name of the golden image |
+| `windows_edition` | per version | Override the `install.wim` edition string (e.g. for Datacenter) |
+| `output_image_name` | `win<version>-cloudbase` | Name of the golden image |
 | `storage_class` | `harvester-longhorn` | StorageClass for the rootdisk + exported image (use any class you've tested) |
-| `rootdisk_gib` | `32` | Golden image disk size (kept small; grows on deploy) |
+| `rootdisk_gib` | `36` | Golden image disk size (kept small; grows on deploy) |
 | `install_openssh` | `false` | Bake OpenSSH into the image (adds ~6 min) |
 
 Windows 11:
 
 ```bash
 terraform apply \
+  -var 'windows_version=w11' \
   -var 'windows_iso_image_ref=default/image-yyyyy' \
-  -var 'iso_storage_class=longhorn-image-yyyyy' \
-  -var 'windows_edition=Windows 11 Pro' \
-  -var 'output_image_name=win11-cloudbase' \
-  -var 'enable_efi_tpm=true' \
-  -var 'enable_win11_bypass_checks=true'
+  -var 'iso_storage_class=longhorn-image-yyyyy'
 ```
+
+`windows_version=w11` already implies `windows_edition=Windows 11 Pro`,
+`enable_efi_tpm=true`, `enable_win11_bypass_checks=true`, the Pro KMS client
+setup key and `output_image_name=win11-cloudbase`; pass any of them explicitly
+to override.
 
 ---
 
 ## What the golden image contains
 
-- Windows Server 2022 (or Windows 11), fully installed on a virtio-scsi disk.
+- Windows Server 2022, Windows Server 2025 or Windows 11, fully installed on a
+  virtio-scsi disk.
 - **SUSE VMDP 2.5.5** — virtio block/scsi/net drivers + `qemu-guest-agent`.
 - **Cloudbase-Init** — `NoCloud` metadata; `ExtendVolumesPlugin` grows `C:` on
   first boot.
@@ -277,7 +292,15 @@ terraform apply \
 - Sysprepped `/generalize /oobe /shutdown` — SID regenerated, machine identity
   clean, Cloudbase-Init re-armed.
 
-## Windows 11 notes
+## Version notes
+
+The build is version-specific: the answer file names the exact edition inside
+your ISO's `install.wim`, and the partition layout differs between the Server
+releases and Windows 11. **[docs/windows-versions.md](docs/windows-versions.md)**
+covers the edition strings, how to verify them against your own media, and the
+2025-specific gotchas (stricter `DriverPaths`, hungrier Microsoft Store).
+
+### Windows 11
 
 - Use `Autounattend-w11.xml` / `enable_efi_tpm=true` — Win11 requires UEFI +
   Secure Boot + vTPM.

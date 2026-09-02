@@ -9,13 +9,43 @@ provider "kubectl" {
 
 locals {
   build_vm_name = "winbuild-tf"
-  is_win11      = var.enable_efi_tpm
+
+  # Everything version-dependent is derived from var.windows_version, and every
+  # derived value stays overridable. /IMAGE/NAME must match an image name inside
+  # the ISO's install.wim byte for byte -- see docs/windows-versions.md.
+  default_editions = {
+    "2022" = "Windows Server 2022 SERVERSTANDARD"
+    "2025" = "Windows Server 2025 SERVERSTANDARD"
+    "w11"  = "Windows 11 Pro"
+  }
+  default_image_names = {
+    "2022" = "win2022-cloudbase"
+    "2025" = "win2025-cloudbase"
+    "w11"  = "win11-cloudbase"
+  }
+
+  windows_edition   = var.windows_edition != null ? var.windows_edition : local.default_editions[var.windows_version]
+  output_image_name = var.output_image_name != null ? var.output_image_name : local.default_image_names[var.windows_version]
+
+  # Windows 11 is the only version that requires UEFI + Secure Boot + vTPM and
+  # the compat-check bypasses, and the only one that needs a product key in the
+  # answer file (Server evaluation and retail media do not), so all three
+  # default to "w11 only".
+  is_win11      = var.enable_efi_tpm != null ? var.enable_efi_tpm : var.windows_version == "w11"
+  bypass_checks = var.enable_win11_bypass_checks != null ? var.enable_win11_bypass_checks : var.windows_version == "w11"
+
+  # Public Windows 11 Pro KMS client setup key -- not a licence, it just gets
+  # Setup past the "enter a product key" gate.
+  windows_product_key = (var.windows_product_key != null
+    ? var.windows_product_key
+    : (var.windows_version == "w11" ? "W269N-WFGWX-YVC9B-4J6C9-T83GX" : "")
+  )
 
   autounattend = templatefile("${path.module}/autounattend.xml.tftpl", {
-    windows_edition            = var.windows_edition
-    windows_product_key        = var.windows_product_key
-    enable_efi_tpm             = var.enable_efi_tpm
-    enable_win11_bypass_checks = var.enable_win11_bypass_checks
+    windows_edition            = local.windows_edition
+    windows_product_key        = local.windows_product_key
+    enable_efi_tpm             = local.is_win11
+    enable_win11_bypass_checks = local.bypass_checks
     admin_password             = var.admin_password
   })
 
@@ -146,21 +176,25 @@ locals {
     apiVersion = "harvesterhci.io/v1beta1"
     kind       = "VirtualMachineImage"
     metadata = {
-      name      = var.output_image_name
+      name      = local.output_image_name
       namespace = var.namespace
     }
     spec = {
-      displayName  = var.output_image_name
+      displayName  = local.output_image_name
       backend      = "cdi"
       sourceType   = "export-from-volume"
       pvcName      = "${local.build_vm_name}-rootdisk"
       pvcNamespace = var.namespace
+      # Pin this. Omitted, Harvester's webhook defaults it to the cluster
+      # default StorageClass -- so a build on any other class silently gets
+      # copied across drivers into wherever the cluster default happens to be.
+      targetStorageClassName = var.storage_class
     }
   })
 }
 
 # ---------------------------------------------------------------------------
-# Sysprep secret carrying the rendered Autounattend.xml + bootstrap.ps1.
+# Sysprep secret carrying the rendered autounattend.xml + bootstrap.ps1.
 # KubeVirt mounts this as a CD-ROM ISO with both files at the root.
 # ---------------------------------------------------------------------------
 resource "kubernetes_secret" "unattend" {
@@ -228,7 +262,7 @@ resource "null_resource" "wait_image_imported" {
     command     = <<-EOT
       KC="${pathexpand(var.kubeconfig)}"
       NS="${var.namespace}"
-      NAME="${var.output_image_name}"
+      NAME="${local.output_image_name}"
       MAX=1200  # 20 min
       START=$(date +%s)
       while :; do
@@ -260,11 +294,11 @@ resource "time_sleep" "settle_after_image" {
 }
 
 output "image_name" {
-  value       = var.output_image_name
+  value       = local.output_image_name
   description = "Name of the produced VirtualMachineImage. Reference this from new VMs' volumeClaimTemplates annotation."
 }
 
 output "image_ref" {
-  value       = "${var.namespace}/${var.output_image_name}"
+  value       = "${var.namespace}/${local.output_image_name}"
   description = "Full '<namespace>/<name>' reference for the imageId annotation on consumer VMs."
 }

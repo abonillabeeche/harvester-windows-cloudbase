@@ -17,9 +17,9 @@ disk on first boot, so a small image serves any VM size.
 
 Our answer file creates `C:` with `<Extend>true</Extend>`, so it fills the whole
 rootdisk. **The rootdisk size at build time is the image's virtual size.** The
-manifests default to a **32Gi** rootdisk for this reason — plenty for a base
+manifests default to a **36Gi** rootdisk for this reason — plenty for a base
 Windows Server, and it grows on deploy. Don't build on a 64Gi disk if you want a
-32Gi image; the clean fix is to build small, not to shrink afterwards.
+36Gi image; the clean fix is to build small, not to shrink afterwards.
 
 ## Fixing physical size: drop the zeros
 
@@ -94,7 +94,7 @@ cluster-default class. The Job flips the multipart form field automatically
 > use it as the default. `shrink` edits the partition table and truncates the
 > virtual disk; it needs a clean NTFS (captured after a graceful sysprep
 > `/shutdown`) and is best-effort on GPT disks. If you just want a small image,
-> prefer *building on a small rootdisk* (32Gi) over post-hoc `shrink`.
+> prefer *building on a small rootdisk* (36Gi) over post-hoc `shrink`.
 
 ## A verified run
 
@@ -103,7 +103,7 @@ Captured against a real Windows Server 2022 golden build (`shrink` mode,
 
 | Stage | Size |
 |---|---|
-| Build rootdisk (virtual, at build time) | 32 Gi |
+| Build rootdisk (virtual, at build time) | 36 Gi |
 | NTFS used / `ntfsresize` minimum | ~11.25 GB |
 | NTFS resized to (min + 1 GiB slack) | ~12.3 GB |
 | **Exported image — virtual size** | **12 GiB** (`.status.virtualSize` = 12853444608) |

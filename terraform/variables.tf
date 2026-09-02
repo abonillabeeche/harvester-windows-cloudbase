@@ -10,27 +10,37 @@ variable "namespace" {
   default     = "default"
 }
 
+variable "windows_version" {
+  description = "Which Windows you are installing: \"2022\", \"2025\" or \"w11\". REQUIRED. It selects the install.wim edition string, the firmware/partition layout, the Win11 compat-check bypasses and the default image name -- each of which is overridable below. See docs/windows-versions.md."
+  type        = string
+
+  validation {
+    condition     = contains(["2022", "2025", "w11"], var.windows_version)
+    error_message = "windows_version must be one of: 2022, 2025, w11."
+  }
+}
+
 variable "windows_iso_image_ref" {
   description = "Harvester VirtualMachineImage reference for the Windows install ISO, as '<namespace>/<image-name>'."
   type        = string
 }
 
 variable "windows_edition" {
-  description = "Edition name inside the ISO's install.wim (must match exactly). Examples: 'Windows Server 2022 SERVERSTANDARD', 'Windows 11 Pro'."
+  description = "Override the /IMAGE/NAME edition name inside the ISO's install.wim (must match byte for byte). Leave null to use the Desktop Experience Standard/Pro edition for windows_version. Set it for Datacenter media, e.g. 'Windows Server 2025 SERVERDATACENTER'. Verify with `wiminfo` or `dism /Get-WimInfo`."
   type        = string
-  default     = "Windows Server 2022 SERVERSTANDARD"
+  default     = null
 }
 
 variable "windows_product_key" {
-  description = "Product key inserted into the unattend. Empty for Server evaluation ISOs. For Windows 11 the default is the public Pro KMS client setup key."
+  description = "Product key inserted into the unattend. Leave null for the per-version default: none for Server (evaluation and retail media do not need one here), and the public Pro KMS client setup key for Windows 11. Set \"\" to force no key."
   type        = string
-  default     = ""
+  default     = null
 }
 
 variable "output_image_name" {
-  description = "Name of the resulting VirtualMachineImage."
+  description = "Name of the resulting VirtualMachineImage. Leave null to derive it from windows_version (win2022-cloudbase / win2025-cloudbase / win11-cloudbase)."
   type        = string
-  default     = "win2022-cloudbase"
+  default     = null
 }
 
 variable "storage_class" {
@@ -76,21 +86,21 @@ variable "memory_gib" {
 }
 
 variable "rootdisk_gib" {
-  description = "Golden image rootdisk size in GiB. Keep this small (32 is plenty for a base Windows Server image); Cloudbase-Init's ExtendVolumesPlugin grows C: to the target disk when a consumer VM is created larger."
+  description = "Golden image rootdisk size in GiB. Keep this small; Cloudbase-Init's ExtendVolumesPlugin grows C: to the target disk when a consumer VM is created larger. Do not go far below the 36 default: Server 2025 + VMDP + Cloudbase-Init + the zero-fill pass needs the headroom, and sysprep /generalize fails outright on a full volume."
   type        = number
-  default     = 32
+  default     = 36
 }
 
 variable "enable_efi_tpm" {
-  description = "Enable UEFI + Secure Boot + vTPM in the build VM (required for Windows 11)."
+  description = "Enable UEFI + Secure Boot + vTPM in the build VM, and lay down the matching EFI/MSR/Windows partition layout. Leave null to derive from windows_version: on for w11, off for the Server releases (which install BIOS/MBR)."
   type        = bool
-  default     = false
+  default     = null
 }
 
 variable "enable_win11_bypass_checks" {
-  description = "Write LabConfig registry keys during Setup to bypass Windows 11 CPU / TPM / Secure Boot / RAM / storage compatibility checks. Ignored for non-Win11 editions."
+  description = "Write LabConfig registry keys during Setup to bypass the Windows 11 CPU / TPM / Secure Boot / RAM / storage compatibility checks. Leave null to derive from windows_version: on for w11, off otherwise (the Server releases have no such gates)."
   type        = bool
-  default     = false
+  default     = null
 }
 
 variable "vmdp_container_image" {

@@ -9,20 +9,22 @@
       <UserLocale>en-US</UserLocale>
     </component>
     <component name="Microsoft-Windows-PnpCustomizationsWinPE" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
-      <!-- Load the VMDP virtio-scsi/blk drivers in WinPE so Setup can see the
-           virtio-scsi rootdisk. Scans the likely optical-drive letters (the
-           VMDP CD letter shifts in WinPE); missing paths are skipped.
-
-           Point at the exact nested driver folder, NOT the CD root. A bare D:\
-           makes Setup walk that whole volume looking for INFs - and one of
-           D:-G: is the multi-GB Windows install ISO, while the VMDP CD root
-           holds every other OS's driver folder (Server2012-Win8,
-           Server2016-19-Win10, ...). On Server 2025 media that blows whatever
+      <!-- Load the VMDP virtio-scsi/blk drivers (pvvxscsi/vioscsi) in WinPE so
+           Setup can see a virtio-scsi rootdisk. The VMDP CD letter shifts in
+           WinPE, so scan the likely optical-drive letters; missing paths are
+           skipped. Required only when the rootdisk uses `bus: scsi` (fast
+           path). A `bus: sata` rootdisk installs on native AHCI and needs no
+           driver injection, but is noticeably slower. -->
+      <!-- Point at the VMDP CD's exact nested driver folder, NOT the CD root.
+           A bare D:\ makes Setup walk that whole volume looking for INFs - and
+           one of D:-G: is the multi-GB Windows install ISO, while the VMDP CD
+           root holds every other OS's driver folder (Server2012-Win8,
+           Server2016-19-Win10, ...). On larger media that blows whatever
            time/depth budget DriverPaths has: Setup reaches DiskConfiguration
            with no virtio-scsi driver loaded and dies with
            "Error code: 0xD000A000 - 0x40031" (it cannot find the disk named in
-           ImageInstall because it never saw one). Server 2022 tolerated the
-           CD roots; 2025 does not. One folder covers 2022/2025/Win11. -->
+           ImageInstall because it never saw one). Missing letters are skipped,
+           so listing all four is free. -->
       <DriverPaths>
         <PathAndCredentials wcm:action="add" wcm:keyValue="1"><Path>D:\Server2022-25-Win11\x64</Path></PathAndCredentials>
         <PathAndCredentials wcm:action="add" wcm:keyValue="2"><Path>E:\Server2022-25-Win11\x64</Path></PathAndCredentials>
@@ -31,7 +33,6 @@
       </DriverPaths>
     </component>
     <component name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
-%{ if enable_win11_bypass_checks ~}
       <RunSynchronous>
         <RunSynchronousCommand wcm:action="add"><Order>1</Order><Path>reg add HKLM\System\Setup\LabConfig /v BypassTPMCheck /t REG_DWORD /d 1 /f</Path></RunSynchronousCommand>
         <RunSynchronousCommand wcm:action="add"><Order>2</Order><Path>reg add HKLM\System\Setup\LabConfig /v BypassSecureBootCheck /t REG_DWORD /d 1 /f</Path></RunSynchronousCommand>
@@ -39,29 +40,16 @@
         <RunSynchronousCommand wcm:action="add"><Order>4</Order><Path>reg add HKLM\System\Setup\LabConfig /v BypassRAMCheck /t REG_DWORD /d 1 /f</Path></RunSynchronousCommand>
         <RunSynchronousCommand wcm:action="add"><Order>5</Order><Path>reg add HKLM\System\Setup\LabConfig /v BypassStorageCheck /t REG_DWORD /d 1 /f</Path></RunSynchronousCommand>
       </RunSynchronous>
-%{ endif ~}
       <DiskConfiguration>
         <WillShowUI>OnError</WillShowUI>
         <Disk wcm:action="add">
           <CreatePartitions>
-%{ if enable_efi_tpm ~}
-            <CreatePartition wcm:action="add"><Order>1</Order><Type>EFI</Type><Size>300</Size></CreatePartition>
-            <CreatePartition wcm:action="add"><Order>2</Order><Type>MSR</Type><Size>128</Size></CreatePartition>
-            <CreatePartition wcm:action="add"><Order>3</Order><Extend>true</Extend><Type>Primary</Type></CreatePartition>
-%{ else ~}
             <CreatePartition wcm:action="add"><Order>1</Order><Type>Primary</Type><Size>500</Size></CreatePartition>
             <CreatePartition wcm:action="add"><Order>2</Order><Extend>true</Extend><Type>Primary</Type></CreatePartition>
-%{ endif ~}
           </CreatePartitions>
           <ModifyPartitions>
-%{ if enable_efi_tpm ~}
-            <ModifyPartition wcm:action="add"><Format>FAT32</Format><Label>System</Label><Order>1</Order><PartitionID>1</PartitionID></ModifyPartition>
-            <ModifyPartition wcm:action="add"><Order>2</Order><PartitionID>2</PartitionID></ModifyPartition>
-            <ModifyPartition wcm:action="add"><Format>NTFS</Format><Label>Windows</Label><Letter>C</Letter><Order>3</Order><PartitionID>3</PartitionID></ModifyPartition>
-%{ else ~}
             <ModifyPartition wcm:action="add"><Active>true</Active><Format>NTFS</Format><Label>System</Label><Order>1</Order><PartitionID>1</PartitionID></ModifyPartition>
             <ModifyPartition wcm:action="add"><Format>NTFS</Format><Label>Windows</Label><Letter>C</Letter><Order>2</Order><PartitionID>2</PartitionID></ModifyPartition>
-%{ endif ~}
           </ModifyPartitions>
           <DiskID>0</DiskID>
           <WillWipeDisk>true</WillWipeDisk>
@@ -72,51 +60,36 @@
           <InstallFrom>
             <MetaData wcm:action="add">
               <Key>/IMAGE/NAME</Key>
-              <Value>${windows_edition}</Value>
+              <Value>Windows Server 2025 SERVERSTANDARD</Value>
             </MetaData>
           </InstallFrom>
-          <InstallTo><DiskID>0</DiskID><PartitionID>${enable_efi_tpm ? 3 : 2}</PartitionID></InstallTo>
+          <InstallTo><DiskID>0</DiskID><PartitionID>2</PartitionID></InstallTo>
         </OSImage>
       </ImageInstall>
       <UserData>
-%{ if windows_product_key != "" ~}
-        <ProductKey>
-          <Key>${windows_product_key}</Key>
-          <WillShowUI>OnError</WillShowUI>
-        </ProductKey>
-%{ endif ~}
         <AcceptEula>true</AcceptEula>
         <FullName>Administrator</FullName>
         <Organization>SUSE</Organization>
       </UserData>
     </component>
   </settings>
-%{ if enable_win11_bypass_checks ~}
-
-  <settings pass="specialize">
-    <component name="Microsoft-Windows-Deployment" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
-      <RunSynchronous>
-        <RunSynchronousCommand wcm:action="add">
-          <Order>1</Order>
-          <Path>reg add HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OOBE /v BypassNRO /t REG_DWORD /d 1 /f</Path>
-        </RunSynchronousCommand>
-      </RunSynchronous>
-    </component>
-  </settings>
-%{ endif ~}
-
   <settings pass="oobeSystem">
     <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
       <AutoLogon>
         <Enabled>true</Enabled>
         <LogonCount>2</LogonCount>
         <Password>
-          <Value>${admin_password}</Value>
+          <Value>HarvesterBuild1!</Value>
           <PlainText>true</PlainText>
         </Password>
         <Username>Administrator</Username>
       </AutoLogon>
       <FirstLogonCommands>
+        <!-- TWO-FILE PATH (kubectl create secret with both keys, or Terraform):
+             bootstrap.ps1 rides the sysprep CD as its own file, so scan the
+             optical drives for it and run it. For the SINGLE-FILE UI path this
+             block is replaced by build-answerfile.py, which folds bootstrap.ps1
+             (base64) straight into FirstLogonCommands. -->
         <SynchronousCommand wcm:action="add">
           <CommandLine>cmd /c "for %d in (D E F G H I) do if exist %d:\bootstrap.ps1 powershell.exe -NoProfile -ExecutionPolicy Bypass -File %d:\bootstrap.ps1"</CommandLine>
           <Description>run winbuild bootstrap</Description>
@@ -126,9 +99,6 @@
       <OOBE>
         <HideEULAPage>true</HideEULAPage>
         <HideOEMRegistrationScreen>true</HideOEMRegistrationScreen>
-%{ if enable_efi_tpm ~}
-        <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
-%{ endif ~}
         <SkipMachineOOBE>true</SkipMachineOOBE>
         <SkipUserOOBE>true</SkipUserOOBE>
       </OOBE>
@@ -137,7 +107,7 @@
       <TimeZone>UTC</TimeZone>
       <UserAccounts>
         <AdministratorPassword>
-          <Value>${admin_password}</Value>
+          <Value>HarvesterBuild1!</Value>
           <PlainText>true</PlainText>
         </AdministratorPassword>
       </UserAccounts>

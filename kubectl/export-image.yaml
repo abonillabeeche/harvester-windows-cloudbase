@@ -1,7 +1,7 @@
 # Simple, native golden-image capture: export the build rootdisk PVC straight
 # into a VirtualMachineImage. No conversion happens -- the resulting image keeps
 # the SAME virtual size as the source PVC (so build on a small rootdisk, e.g.
-# 32Gi, if you want a small image). The build VM must be Stopped first.
+# 36Gi, if you want a small image). The build VM must be Stopped first.
 #
 # Want a *smaller / compacted* image (drop zeroed free space, or shrink the
 # virtual size below the build disk)? Use the shrink-export Job instead --
@@ -9,11 +9,17 @@
 apiVersion: harvesterhci.io/v1beta1
 kind: VirtualMachineImage
 metadata:
-  name: win2022-cloudbase
+  name: win2025-cloudbase
   namespace: default
 spec:
-  displayName: win2022-cloudbase
+  displayName: win2025-cloudbase
   backend: cdi
   sourceType: export-from-volume
   pvcName: winbuild-rootdisk
   pvcNamespace: default
+  # Set this explicitly. Leave it out and Harvester's webhook defaults it to the
+  # CLUSTER DEFAULT StorageClass, which is usually harvester-longhorn -- so a
+  # build that ran on some other class gets exported by copying the whole disk
+  # across drivers, silently, and the golden image ends up somewhere you did not
+  # choose. Normally you want the same class as the build rootdisk.
+  targetStorageClassName: REPLACE_STORAGECLASS

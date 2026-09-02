@@ -29,7 +29,7 @@ metadata:
         },
         "spec": {
           "accessModes": ["ReadWriteOnce"],
-          "resources": {"requests": {"storage": "32Gi"}},
+          "resources": {"requests": {"storage": "36Gi"}},
           "volumeMode": "Block",
           "storageClassName": "REPLACE_STORAGECLASS"
         }
@@ -52,10 +52,10 @@ metadata:
 #                                "No Bootable Device".
 #
 # winbuild-rootdisk  -- the golden disk. Set storageClassName to a StorageClass
-#   you have tested (harvester-longhorn ships on every cluster). 32Gi is
+#   you have tested (harvester-longhorn ships on every cluster). 36Gi is
 #   deliberate: the smaller the build disk, the smaller the exported image.
 #   Cloudbase-Init's ExtendVolumesPlugin grows C: to fill the target disk on
-#   first boot, so VMs cloned from the image can be any size >= 32Gi.
+#   first boot, so VMs cloned from the image can be any size >= 36Gi.
 #   Keep accessModes: [ReadWriteOnce] — block-mode/LVM-based CSI classes are
 #   typically RWO-only (a ReadWriteMany request is rejected with
 #   MULTI_NODE_MULTI_WRITER); RWO is always sufficient here.
@@ -97,7 +97,7 @@ spec:
             name: windows-iso
             bootOrder: 1
           # virtio-scsi rootdisk (fast). Requires the WinPE DriverPaths block in
-          # Autounattend.xml so Setup can see the disk. Switch to `sata` only if
+          # the answer file so Setup can see the disk. Switch to `sata` only if
           # you strip that block (slower, no driver injection needed).
           - disk: {bus: scsi}
             name: rootdisk

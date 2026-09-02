@@ -27,15 +27,26 @@ How it works
    C:\\bootstrap.ps1 and run it. The decode tolerates the CRLFs `echo` inserts
    between chunks because base64 decoding ignores whitespace.
 
-The output is written next to the inputs as `Autounattend-selfcontained.xml`.
-Paste it into the UI's "Create New" sysprep secret, or:
+Windows version
+---------------
+`--windows-version` is REQUIRED and is not cosmetic. It selects the
+`/IMAGE/NAME` edition string in `ImageInstall`, which must match an image name
+in the ISO's `install.wim` *exactly*. Get it wrong and Setup either stops on the
+"Select the operating system you want to install" screen (so the unattended run
+hangs forever) or installs the wrong edition. See `docs/windows-versions.md`.
+
+The output is written next to the inputs as
+`Autounattend-selfcontained-<version>.xml`. Paste it into the UI's "Create New"
+sysprep secret, or:
 
     kubectl create secret generic winbuild-unattend \
-      --from-file=autounattend.xml=Autounattend-selfcontained.xml
+      --from-file=autounattend.xml=Autounattend-selfcontained-2025.xml
 
 Usage
 -----
-    ./build-answerfile.py [Autounattend.xml] [bootstrap.ps1] [-o output.xml]
+    ./build-answerfile.py --windows-version 2025
+    ./build-answerfile.py -w 2022 [Autounattend-2022.xml] [bootstrap.ps1] [-o out.xml]
+    ./build-answerfile.py -w 2025 --edition 'Windows Server 2025 SERVERDATACENTER'
 """
 import argparse
 import base64
@@ -48,6 +59,19 @@ from xml.sax.saxutils import escape
 CHUNK = 700  # base64 chars per echo; keeps each <CommandLine> well under 1024
 B64 = r"C:\Windows\Temp\bootstrap.b64"
 PS1 = r"C:\bootstrap.ps1"
+
+# /IMAGE/NAME must match an image name inside the ISO's install.wim byte for
+# byte. These are the Desktop Experience ("with GUI") editions, which is what
+# the build expects -- Server Core has no Server Manager and a different AppX
+# surface. Retail and Evaluation media use the SAME names. Override with
+# --edition for Datacenter/Core. Verify against your own ISO with:
+#     wiminfo /mnt/iso/sources/install.wim          # wimlib-imagex
+#     dism /Get-WimInfo /WimFile:D:\sources\install.wim
+EDITIONS = {
+    "2022": "Windows Server 2022 SERVERSTANDARD",
+    "2025": "Windows Server 2025 SERVERSTANDARD",
+    "w11": "Windows 11 Pro",
+}
 
 
 def build_flc(ps1_bytes: bytes) -> str:
@@ -91,18 +115,45 @@ def main() -> None:
     here = os.path.dirname(os.path.abspath(__file__))
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("-w", "--windows-version", required=True,
+                    choices=sorted(EDITIONS),
+                    help="Windows version being installed; selects the "
+                         "/IMAGE/NAME edition string (see docs/windows-versions.md)")
+    ap.add_argument("--edition",
+                    help="override /IMAGE/NAME, e.g. for Datacenter or Core "
+                         f"(default per --windows-version: {EDITIONS})")
     ap.add_argument("autounattend", nargs="?",
-                    default=os.path.join(here, "Autounattend.xml"))
+                    help="default: Autounattend-<windows-version>.xml")
     ap.add_argument("bootstrap", nargs="?",
                     default=os.path.join(here, "bootstrap.ps1"))
     ap.add_argument("-o", "--output",
-                    default=os.path.join(here, "Autounattend-selfcontained.xml"))
+                    help="default: Autounattend-selfcontained-<windows-version>.xml")
     args = ap.parse_args()
+
+    ver = args.windows_version
+    edition = args.edition or EDITIONS[ver]
+    if args.autounattend is None:
+        args.autounattend = os.path.join(here, f"Autounattend-{ver}.xml")
+    if args.output is None:
+        args.output = os.path.join(here, f"Autounattend-selfcontained-{ver}.xml")
 
     with open(args.autounattend, "r", encoding="utf-8") as f:
         au = f.read()
     with open(args.bootstrap, "rb") as f:
         ps1 = f.read()
+
+    # Pin the edition even when the base file already names it -- the base files
+    # are per-version, but this keeps --edition working and catches a base file
+    # that was copied from another version without updating ImageInstall.
+    au, n = re.subn(
+        r"(<Key>/IMAGE/NAME</Key>\s*<Value>)(.*?)(</Value>)",
+        lambda m: m.group(1) + escape(edition) + m.group(3),
+        au,
+        flags=re.S,
+    )
+    if n != 1:
+        sys.exit("ERROR: expected exactly one /IMAGE/NAME MetaData value in the "
+                 f"answer file, found {n}.")
 
     flc = build_flc(ps1)
 

@@ -29,7 +29,7 @@ metadata:
         },
         "spec": {
           "accessModes": ["ReadWriteOnce"],
-          "resources": {"requests": {"storage": "32Gi"}},
+          "resources": {"requests": {"storage": "36Gi"}},
           "volumeMode": "Block",
           "storageClassName": "REPLACE_STORAGECLASS"
         }

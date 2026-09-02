@@ -1,0 +1,252 @@
+<?xml version="1.0" encoding="utf-8"?>
+<unattend xmlns="urn:schemas-microsoft-com:unattend">
+  <settings pass="windowsPE">
+    <component name="Microsoft-Windows-International-Core-WinPE" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <SetupUILanguage><UILanguage>en-US</UILanguage></SetupUILanguage>
+      <InputLocale>en-US</InputLocale>
+      <SystemLocale>en-US</SystemLocale>
+      <UILanguage>en-US</UILanguage>
+      <UserLocale>en-US</UserLocale>
+    </component>
+    <component name="Microsoft-Windows-PnpCustomizationsWinPE" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <!-- Load the VMDP virtio-scsi/blk drivers (pvvxscsi/vioscsi) in WinPE so
+           Setup can see a virtio-scsi rootdisk. The VMDP CD letter shifts in
+           WinPE, so scan the likely optical-drive letters; missing paths are
+           skipped. Required only when the rootdisk uses `bus: scsi` (fast
+           path). A `bus: sata` rootdisk installs on native AHCI and needs no
+           driver injection, but is noticeably slower. -->
+      <!-- Point at the VMDP CD's exact nested driver folder, NOT the CD root.
+           A bare D:\ makes Setup walk that whole volume looking for INFs - and
+           one of D:-G: is the multi-GB Windows install ISO, while the VMDP CD
+           root holds every other OS's driver folder (Server2012-Win8,
+           Server2016-19-Win10, ...). On larger media that blows whatever
+           time/depth budget DriverPaths has: Setup reaches DiskConfiguration
+           with no virtio-scsi driver loaded and dies with
+           "Error code: 0xD000A000 - 0x40031" (it cannot find the disk named in
+           ImageInstall because it never saw one). Missing letters are skipped,
+           so listing all four is free. -->
+      <DriverPaths>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="1"><Path>D:\Server2022-25-Win11\x64</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="2"><Path>E:\Server2022-25-Win11\x64</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="3"><Path>F:\Server2022-25-Win11\x64</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="4"><Path>G:\Server2022-25-Win11\x64</Path></PathAndCredentials>
+      </DriverPaths>
+    </component>
+    <component name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <RunSynchronous>
+        <RunSynchronousCommand wcm:action="add"><Order>1</Order><Path>reg add HKLM\System\Setup\LabConfig /v BypassTPMCheck /t REG_DWORD /d 1 /f</Path></RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add"><Order>2</Order><Path>reg add HKLM\System\Setup\LabConfig /v BypassSecureBootCheck /t REG_DWORD /d 1 /f</Path></RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add"><Order>3</Order><Path>reg add HKLM\System\Setup\LabConfig /v BypassCPUCheck /t REG_DWORD /d 1 /f</Path></RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add"><Order>4</Order><Path>reg add HKLM\System\Setup\LabConfig /v BypassRAMCheck /t REG_DWORD /d 1 /f</Path></RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add"><Order>5</Order><Path>reg add HKLM\System\Setup\LabConfig /v BypassStorageCheck /t REG_DWORD /d 1 /f</Path></RunSynchronousCommand>
+      </RunSynchronous>
+      <DiskConfiguration>
+        <WillShowUI>OnError</WillShowUI>
+        <Disk wcm:action="add">
+          <CreatePartitions>
+            <CreatePartition wcm:action="add"><Order>1</Order><Type>Primary</Type><Size>500</Size></CreatePartition>
+            <CreatePartition wcm:action="add"><Order>2</Order><Extend>true</Extend><Type>Primary</Type></CreatePartition>
+          </CreatePartitions>
+          <ModifyPartitions>
+            <ModifyPartition wcm:action="add"><Active>true</Active><Format>NTFS</Format><Label>System</Label><Order>1</Order><PartitionID>1</PartitionID></ModifyPartition>
+            <ModifyPartition wcm:action="add"><Format>NTFS</Format><Label>Windows</Label><Letter>C</Letter><Order>2</Order><PartitionID>2</PartitionID></ModifyPartition>
+          </ModifyPartitions>
+          <DiskID>0</DiskID>
+          <WillWipeDisk>true</WillWipeDisk>
+        </Disk>
+      </DiskConfiguration>
+      <ImageInstall>
+        <OSImage>
+          <InstallFrom>
+            <MetaData wcm:action="add">
+              <Key>/IMAGE/NAME</Key>
+              <Value>Windows Server 2025 SERVERSTANDARD</Value>
+            </MetaData>
+          </InstallFrom>
+          <InstallTo><DiskID>0</DiskID><PartitionID>2</PartitionID></InstallTo>
+        </OSImage>
+      </ImageInstall>
+      <UserData>
+        <AcceptEula>true</AcceptEula>
+        <FullName>Administrator</FullName>
+        <Organization>SUSE</Organization>
+      </UserData>
+    </component>
+  </settings>
+  <settings pass="oobeSystem">
+    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <AutoLogon>
+        <Enabled>true</Enabled>
+        <LogonCount>2</LogonCount>
+        <Password>
+          <Value>HarvesterBuild1!</Value>
+          <PlainText>true</PlainText>
+        </Password>
+        <Username>Administrator</Username>
+      </AutoLogon>
+      <FirstLogonCommands>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>cmd /c del /q "C:\Windows\Temp\bootstrap.b64" 2&gt;nul &amp; rem init</CommandLine>
+          <Description>winbuild step 1</Description>
+          <Order>1</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>cmd /c echo JEVycm9yQWN0aW9uUHJlZmVyZW5jZSA9ICdDb250aW51ZScKJGxvZyA9ICdDOlx3aW5idWlsZC5sb2cnCmZ1bmN0aW9uIExvZygkbSkgewogICR0ID0gKEdldC1EYXRlKS5Ub1N0cmluZygnSEg6bW06c3MnKQogICIkdCAkbSIgfCBUZWUtT2JqZWN0IC1GaWxlUGF0aCAkbG9nIC1BcHBlbmQgfCBPdXQtSG9zdAp9CgpMb2cgJz09PSB3aW5idWlsZCBib290c3RyYXAgc3RhcnRpbmcgPT09JwoKIyAwYS4gRnJlZXplIHRoZSBtYWNoaW5lJ3Mgc29mdHdhcmUgc3RhdGUgZm9yIHRoZSBkdXJhdGlvbiBvZiB0aGUgYnVpbGQuCiMKIyBUaGUgYnVpbGQgVk0gaGFzIG91dGJvdW5kIGludGVybmV0IChpdCBkb3dubG9hZHMgQ2xvdWRiYXNlLUluaXQgYmVsb3cpLCBzbwojIFdpbmRvd3MgVXBkYXRlIGFuZCB0aGUgTWljcm9zb2Z0IFN0b3JlIHdpbGwgc2VydmljZSB0aGUgbWFjaGluZSB3aGlsZSB0aGUKIyBidWlsZCBydW5zLiBUaGF0IGlzIHdoYXQgYnJlYWtzIHN5c3ByZXA6IHRoZSBTdG9yZSBzaWxlbnRseSB1cGRhdGVzIGEKIyBw&gt;&gt;C:\Windows\Temp\bootstrap.b64</CommandLine>
+          <Description>winbuild step 2</Description>
+          <Order>2</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>cmd /c echo cmVpbnN0YWxsZWQgYXBwIGZvciB0aGUgQWRtaW5pc3RyYXRvciBhY2NvdW50IG9ubHkg4oCUIG9ic2VydmVkIHJlcGVhdGVkbHkgb24KIyBTZXJ2ZXIgMjAyNSB3aXRoIE1pY3Jvc29mdC5EZXNrdG9wQXBwSW5zdGFsbGVyICh3aW5nZXQpIOKAlCB3aGljaCBsZWF2ZXMgaXQKIyAiaW5zdGFsbGVkIGZvciBhIHVzZXIsIGJ1dCBub3QgcHJvdmlzaW9uZWQgZm9yIGFsbCB1c2VycyIsIGFuZCBnZW5lcmFsaXplCiMgYWJvcnRzIHdpdGggMHg4MDA3M2NmMiAoZHdSZXQgPSAweDNjZjIgaW4KIyAlV0lORElSJVxTeXN0ZW0zMlxTeXNwcmVwXFBhbnRoZXJcc2V0dXBlcnIubG9nKS4KIwojIEtlZXBpbmcgQXBwWCBleGFjdGx5IGFzIHRoZSBpbnN0YWxsIG1lZGlhIHNoaXBwZWQgaXQgaXMgdGhlIGZpeC4gRG8gTk9UIHRyeQojIHRvIHJlcGFpciB0aGUgZHJpZnQgYWZ0ZXJ3YXJkcyBieSByZW1vdmluZy9yZXByb3Zpc2lvbmluZyBwYWNrYWdlczogYQojIFJlbW92ZS1BcHB4UGFja2FnZSAtQWxsVXNlcnMgY2FsbCBjYW4gZGVhZGxv&gt;&gt;C:\Windows\Temp\bootstrap.b64</CommandLine>
+          <Description>winbuild step 3</Description>
+          <Order>3</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>cmd /c echo Y2sgaW5kZWZpbml0ZWx5IGF0IDAlIENQVSwgYW5kCiMgQWRkLUFwcHhQcm92aXNpb25lZFBhY2thZ2UgcmUtc3RhZ2VzIGV2ZXJ5IHBhY2thZ2UgaW50bwojIEM6XFByb2dyYW0gRmlsZXNcV2luZG93c0FwcHMg4oCUIHdoaWNoIGZpbGxzIHRoZSBidWlsZCBkaXNrIGFuZCB0aGVuIG1ha2VzCiMgcHJvdmlzaW9uaW5nIGZhaWwgZm9yIHJlYWwuIFByZXZlbnQgdGhlIGRyaWZ0IGluc3RlYWQgb2YgY2hhc2luZyBpdC4KIwojIFRoZXNlIGFyZSB1bmRvbmUgb24gdGhlIGRlcGxveWVkIGNsb25lIGJ5IFNldHVwQ29tcGxldGUuY21kICh3cml0dGVuIGF0IHRoZQojIGVuZCBvZiB0aGlzIHNjcmlwdCksIHNvIHRoZSBnb2xkZW4gaW1hZ2UgZG9lcyBub3Qgc2hpcCB3aXRoIFdpbmRvd3MgVXBkYXRlCiMgcGVybWFuZW50bHkgc3dpdGNoZWQgb2ZmLgpmb3JlYWNoICgkcyBpbiAnd3VhdXNlcnYnLCdVc29TdmMnLCdXYWFTTWVkaWNTdmMnLCdJbnN0YWxsU2VydmljZScsJ0RvU3ZjJykgewogIHRyeSB7CiAgICBTdG9wLVNlcnZpY2Ug&gt;&gt;C:\Windows\Temp\bootstrap.b64</CommandLine>
+          <Description>winbuild step 4</Description>
+          <Order>4</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>cmd /c echo JHMgLUZvcmNlIC1FQSBTaWxlbnRseUNvbnRpbnVlCiAgICBTZXQtU2VydmljZSAgJHMgLVN0YXJ0dXBUeXBlIERpc2FibGVkIC1FQSBTdG9wCiAgICBMb2cgImRpc2FibGVkIHNlcnZpY2UgJHMiCiAgfSBjYXRjaCB7IExvZyAiY291bGQgbm90IGRpc2FibGUgJHtzfTogJF8iIH0KfQokcG9saWNpZXMgPSBAewogICdIS0xNOlxTT0ZUV0FSRVxQb2xpY2llc1xNaWNyb3NvZnRcV2luZG93c1N0b3JlJyAgICAgICAgICAgICA9IEB7IEF1dG9Eb3dubG9hZCA9IDIgfQogICdIS0xNOlxTT0ZUV0FSRVxQb2xpY2llc1xNaWNyb3NvZnRcV2luZG93c1xXaW5kb3dzVXBkYXRlJyAgICA9IEB7IERvTm90Q29ubmVjdFRvV2luZG93c1VwZGF0ZUludGVybmV0TG9jYXRpb25zID0gMSB9CiAgJ0hLTE06XFNPRlRXQVJFXFBvbGljaWVzXE1pY3Jvc29mdFxXaW5kb3dzXFdpbmRvd3NVcGRhdGVcQVUnID0gQHsgTm9BdXRvVXBkYXRlID0gMSB9Cn0KZm9yZWFjaCAoJGtleSBpbiAkcG9saWNpZXMuS2V5cykgewogIHRyeSB7CiAgICBOZXctSXRl&gt;&gt;C:\Windows\Temp\bootstrap.b64</CommandLine>
+          <Description>winbuild step 5</Description>
+          <Order>5</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>cmd /c echo bSAtUGF0aCAka2V5IC1Gb3JjZSB8IE91dC1OdWxsCiAgICBmb3JlYWNoICgkbmFtZSBpbiAkcG9saWNpZXNbJGtleV0uS2V5cykgewogICAgICBTZXQtSXRlbVByb3BlcnR5IC1QYXRoICRrZXkgLU5hbWUgJG5hbWUgLVZhbHVlICRwb2xpY2llc1ska2V5XVskbmFtZV0gLVR5cGUgRFdvcmQKICAgIH0KICB9IGNhdGNoIHsgTG9nICJwb2xpY3kgd2FybmluZyBvbiAke2tleX06ICRfIiB9Cn0KTG9nICdXaW5kb3dzIFVwZGF0ZSArIE1pY3Jvc29mdCBTdG9yZSBzZXJ2aWNpbmcgZGlzYWJsZWQgZm9yIHRoZSBidWlsZCcKCiMgMGIuIE9wZW5TU0ggaXMgTk9UIGluc3RhbGxlZCBpbiB0aGUgZ29sZGVuIGltYWdlIGJ5IGRlZmF1bHQuIEFkZC1XaW5kb3dzQ2FwYWJpbGl0eQojIGZvciBPcGVuU1NILlNlcnZlciBwdWxscyB0aGUgRm9EIHBhY2thZ2Ugb25saW5lIGFuZCBhZGRzIH42IG1pbnV0ZXMgdG8gdGhlCiMgYnVpbGQuIEZvciBwZXItVk0gU1NILCBpbnN0YWxsIGl0IGZyb20gY2xvdWQtY29uZmlnIHJ1bmNtZCBhdCBmaXJz&gt;&gt;C:\Windows\Temp\bootstrap.b64</CommandLine>
+          <Description>winbuild step 6</Description>
+          <Order>6</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>cmd /c echo dCBib290LgojIFRvIGluY2x1ZGUgaXQgaW4gdGhlIGdvbGRlbiBpbWFnZSBhbnl3YXksIHVuY29tbWVudCB0aGUgYmxvY2sgYmVsb3cgYW5kCiMgcGFzdGUgeW91ciBwdWJsaWMga2V5LgojCiMgdHJ5IHsKIyAgIEFkZC1XaW5kb3dzQ2FwYWJpbGl0eSAtT25saW5lIC1OYW1lIE9wZW5TU0guU2VydmVyfn5+fjAuMC4xLjAgfCBPdXQtTnVsbAojICAgU2V0LVNlcnZpY2UgLU5hbWUgc3NoZCAtU3RhcnR1cFR5cGUgQXV0b21hdGljCiMgICBTdGFydC1TZXJ2aWNlIHNzaGQKIyAgIE5ldy1OZXRGaXJld2FsbFJ1bGUgLU5hbWUgQWxsb3dTU0hJbiAtRGlzcGxheU5hbWUgJ0FsbG93IFNTSCcgLVByb3RvY29sIFRDUCBgCiMgICAgIC1Mb2NhbFBvcnQgMjIgLUFjdGlvbiBBbGxvdyAtRGlyZWN0aW9uIEluYm91bmQgfCBPdXQtTnVsbAojICAgJHNzaERpciA9ICdDOlxQcm9ncmFtRGF0YVxzc2gnCiMgICBOZXctSXRlbSAtRm9yY2UgLUl0ZW1UeXBlIERpcmVjdG9yeSAkc3NoRGlyIHwgT3V0LU51bGwKIyAgICRhdXRoS2V5cyA9IEpv&gt;&gt;C:\Windows\Temp\bootstrap.b64</CommandLine>
+          <Description>winbuild step 7</Description>
+          <Order>7</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>cmd /c echo aW4tUGF0aCAkc3NoRGlyICdhZG1pbmlzdHJhdG9yc19hdXRob3JpemVkX2tleXMnCiMgICBTZXQtQ29udGVudCAtUGF0aCAkYXV0aEtleXMgLVZhbHVlICdzc2gtcnNhIEFBQUEuLi4geW91ci1rZXktaGVyZScKIyAgIGljYWNscyAkYXV0aEtleXMgL2luaGVyaXRhbmNlOnIgL2dyYW50ICdTWVNURU06KEYpJyBgCiMgICAgIC9ncmFudCAnQlVJTFRJTlxBZG1pbmlzdHJhdG9yczooRiknIHwgT3V0LU51bGwKIyAgIExvZyAnT3BlblNTSCBpbnN0YWxsZWQnCiMgfSBjYXRjaCB7IExvZyAiT3BlblNTSCBzZXR1cCB3YXJuaW5nOiAkXyIgfQoKIyAxLiBMb2NhdGUgdGhlIFZNRFAgQ0QtUk9NIGJ5IGNvbnRlbnQsIG5vdCBhIGZpeGVkIGxldHRlciDigJQgdGhlIGRyaXZlIGxldHRlcgojIHNoaWZ0cyB3aXRoIGRpc2sgb3JkZXIvYnVzIChlLmcuIGEgdmlydGlvLXNjc2kgcm9vdGRpc2sgY2hhbmdlcyB0aGUgQ0QKIyBsZXR0ZXJpbmcpLiBTY2FuIGV2ZXJ5IGRyaXZlIGZvciB0aGUgVk1EUCBzZWxmLWV4dHJhY3Rvci4KJHZtZHAg&gt;&gt;C:\Windows\Temp\bootstrap.b64</CommandLine>
+          <Description>winbuild step 8</Description>
+          <Order>8</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>cmd /c echo PSAkbnVsbApmb3JlYWNoICgkZCBpbiAoR2V0LVBTRHJpdmUgLVBTUHJvdmlkZXIgRmlsZVN5c3RlbSkuUm9vdCkgewogIGlmIChUZXN0LVBhdGggKEpvaW4tUGF0aCAkZCAnVk1EUC1XSU4tMi41LjUuZXhlJykpIHsgJHZtZHAgPSAkZC5UcmltRW5kKCdcJyk7IGJyZWFrIH0KfQppZiAoLW5vdCAkdm1kcCkgewogIExvZyAnRVJST1I6IFZNRFAtV0lOLTIuNS41LmV4ZSBub3QgZm91bmQgb24gYW55IGRyaXZlIC0gVk1EUCBDRC1ST00gbm90IGF0dGFjaGVkJwogIEdldC1Wb2x1bWUgfCBXaGVyZS1PYmplY3QgRHJpdmVUeXBlIC1lcSAnQ0QtUk9NJyB8IEZvcm1hdC1UYWJsZSBEcml2ZUxldHRlcixGaWxlU3lzdGVtTGFiZWwgfCBPdXQtU3RyaW5nIHwgRm9yRWFjaC1PYmplY3QgeyBMb2cgJF8gfQogIGV4aXQgMQp9CkxvZyAiVk1EUCBDRC1ST00gYXQgJHZtZHAiCgojIDIuIEluc3RhbGwgVk1EUCBzaWxlbnRseSDigJQgdGhlIHNldHVwLmV4ZSBhdCB0aGUgSVNPIHJvb3QgaXMganVzdCBhIHdyYXBwZXIKIyB0aGF0IHNob3dz&gt;&gt;C:\Windows\Temp\bootstrap.b64</CommandLine>
+          <Description>winbuild step 9</Description>
+          <Order>9</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>cmd /c echo IGEgZGlhbG9nOyB0aGUgcmVhbCBpbnN0YWxsZXIgaXMgdGhlIHNlbGYtZXh0cmFjdGluZwojIFZNRFAtV0lOLSouZXhlLiBFeHRyYWN0IGl0IGZpcnN0LCB0aGVuIHJ1biBpdHMgaW5uZXIgc2V0dXAuZXhlIHdpdGggc2lsZW50CiMgZmxhZ3MgcGFzc2VkIGFzIE9ORSBTVFJJTkcgKFN0YXJ0LVByb2Nlc3MgYXJnLWFycmF5IHRva2VuaXphdGlvbiBtYW5nbGVzCiMgdGhlIGNvbW1hbmQgbGluZSBhbmQgdHJpZ2dlcnMgYW4gaW50ZXJhY3RpdmUgZGlhbG9nKS4KJGxvY2FsU2Z4ID0gJ0M6XFdpbmRvd3NcVGVtcFxWTURQLVdJTi0yLjUuNS5leGUnCkNvcHktSXRlbSAiJHZtZHBcVk1EUC1XSU4tMi41LjUuZXhlIiAkbG9jYWxTZnggLUZvcmNlCkxvZyAiQ29waWVkIFZNRFAgc2VsZi1leHRyYWN0b3IgdG8gJGxvY2FsU2Z4IgokZXh0cmFjdERpciA9ICdDOlxXaW5kb3dzXFRlbXBcdm1kcC1leHRyYWN0ZWQnCmlmIChUZXN0LVBhdGggJGV4dHJhY3REaXIpIHsgUmVtb3ZlLUl0ZW0gLVJlY3Vyc2UgLUZvcmNlICRleHRyYWN0RGly&gt;&gt;C:\Windows\Temp\bootstrap.b64</CommandLine>
+          <Description>winbuild step 10</Description>
+          <Order>10</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>cmd /c echo IH0KTG9nICdFeHRyYWN0aW5nIFZNRFAgc2VsZi1leHRyYWN0b3IuLi4nCiRwID0gU3RhcnQtUHJvY2VzcyAtRmlsZVBhdGggJGxvY2FsU2Z4IC1Bcmd1bWVudExpc3QgIi1vYCIkZXh0cmFjdERpcmAiIC15IiAtV2FpdCAtUGFzc1RocnUKTG9nICJleHRyYWN0b3IgZXhpdDogJCgkcC5FeGl0Q29kZSkiCiRpbm5lckRpciA9IChHZXQtQ2hpbGRJdGVtICRleHRyYWN0RGlyIC1EaXJlY3RvcnkgLUVBIFNpbGVudGx5Q29udGludWUgfCBTZWxlY3QgLUZpcnN0IDEpLkZ1bGxOYW1lCmlmICgtbm90ICRpbm5lckRpcikgeyBMb2cgJ25vIGV4dHJhY3RlZCBkaXInOyBleGl0IDEgfQokaW5uZXJTZXR1cCA9IEpvaW4tUGF0aCAkaW5uZXJEaXIgJ3NldHVwLmV4ZScKaWYgKC1ub3QgKFRlc3QtUGF0aCAkaW5uZXJTZXR1cCkpIHsgTG9nICJubyBzZXR1cC5leGUgaW4gJGlubmVyRGlyIjsgZXhpdCAxIH0KTG9nICJSdW5uaW5nIGV4dHJhY3RlZCBzZXR1cC5leGUgZnJvbSAkaW5uZXJEaXIgd2l0aCBzaW5nbGUtc3RyaW5nIGFyZ3MuLi4i&gt;&gt;C:\Windows\Temp\bootstrap.b64</CommandLine>
+          <Description>winbuild step 11</Description>
+          <Order>11</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>cmd /c echo CiRwID0gU3RhcnQtUHJvY2VzcyAtRmlsZVBhdGggJGlubmVyU2V0dXAgLUFyZ3VtZW50TGlzdCAnL2xpY19hY2NlcHRlZCAvbm9fcmVib290JyAtV29ya2luZ0RpcmVjdG9yeSAkaW5uZXJEaXIgLVdhaXQgLVBhc3NUaHJ1CkxvZyAiVk1EUCBpbm5lciBzZXR1cCBleGl0OiAkKCRwLkV4aXRDb2RlKSIKU3RhcnQtU2xlZXAgMTUKJHFnYVN2YyA9IEdldC1TZXJ2aWNlIHFlbXUtZ2EgLUVBIFNpbGVudGx5Q29udGludWUKaWYgKCRxZ2FTdmMpIHsgTG9nICJxZW11LWdhIHNlcnZpY2U6ICQoJHFnYVN2Yy5TdGF0dXMpIiB9IGVsc2UgeyBMb2cgJ1dBUk5JTkc6IHFlbXUtZ2EgTk9UIGluc3RhbGxlZCcgfQojIFNVU0UgVk1EUCB1c2VzIHB2dngqIHByZWZpeCAobm90IFJlZEhhdCdzIHZpbyopCiRkcnYgPSBAKEdldC1DaGlsZEl0ZW0gJ0M6XFdpbmRvd3NcU3lzdGVtMzJcZHJpdmVyc1xwdnZ4Ki5zeXMnLCdDOlxXaW5kb3dzXFN5c3RlbTMyXGRyaXZlcnNcdmlvKi5zeXMnIC1FQSBTaWxlbnRseUNvbnRpbnVlKQpMb2cgInZpcnRp&gt;&gt;C:\Windows\Temp\bootstrap.b64</CommandLine>
+          <Description>winbuild step 12</Description>
+          <Order>12</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>cmd /c echo by1mYW1pbHkgZHJpdmVycyBvbiBkaXNrOiAkKCRkcnYuQ291bnQpIGZpbGVzIgoKIyAzLiBEb3dubG9hZCBDbG91ZGJhc2UtSW5pdCBNU0kKTG9nICdEb3dubG9hZGluZyBDbG91ZGJhc2UtSW5pdC4uLicKJG1zaSA9ICdDOlxXaW5kb3dzXFRlbXBcQ2xvdWRiYXNlSW5pdFNldHVwX3g2NC5tc2knCltOZXQuU2VydmljZVBvaW50TWFuYWdlcl06OlNlY3VyaXR5UHJvdG9jb2wgPSBbTmV0LlNlY3VyaXR5UHJvdG9jb2xUeXBlXTo6VGxzMTIKdHJ5IHsKICBJbnZva2UtV2ViUmVxdWVzdCAtVXNlQmFzaWNQYXJzaW5nIC1VcmkgJ2h0dHBzOi8vY2xvdWRiYXNlLml0L2Rvd25sb2Fkcy9DbG91ZGJhc2VJbml0U2V0dXBfeDY0Lm1zaScgLU91dEZpbGUgJG1zaQogIExvZyAiRG93bmxvYWRlZCB0byAkbXNpICgkKChHZXQtSXRlbSAkbXNpKS5MZW5ndGgpIGJ5dGVzKSIKfSBjYXRjaCB7CiAgTG9nICJFUlJPUiBkb3dubG9hZGluZyBDQkk6ICRfIjsgZXhpdCAxCn0KCiMgNC4gSW5zdGFsbCBDbG91ZGJhc2UtSW5pdCBzaWxlbnRseQpM&gt;&gt;C:\Windows\Temp\bootstrap.b64</CommandLine>
+          <Description>winbuild step 13</Description>
+          <Order>13</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>cmd /c echo b2cgJ0luc3RhbGxpbmcgQ2xvdWRiYXNlLUluaXQuLi4nCiRwID0gU3RhcnQtUHJvY2VzcyBtc2lleGVjIC1Bcmd1bWVudExpc3QgIi9pIGAiJG1zaWAiIC9xbiAvbm9yZXN0YXJ0IFJVTl9TRVJWSUNFX0FTX0xPQ0FMX1NZU1RFTT0xIExPR0dJTkdTRVJJQUxQT1JUTkFNRT1DT00xIiAtV2FpdCAtUGFzc1RocnUKTG9nICJDQkkgbXNpZXhlYyBleGl0IGNvZGU6ICQoJHAuRXhpdENvZGUpIgoKIyA1LiBPdmVyd3JpdGUgQ0JJIGNvbmZpZyBmaWxlcyB3aXRoIFNVU0UtS0IgY29udGVudAokY2JpQ29uZiA9ICdDOlxQcm9ncmFtIEZpbGVzXENsb3VkYmFzZSBTb2x1dGlvbnNcQ2xvdWRiYXNlLUluaXRcY29uZicKJGNvbW1vbiA9IEAnCltERUZBVUxUXQp1c2VybmFtZT1BZG1pbgpncm91cHM9QWRtaW5pc3RyYXRvcnMKaW5qZWN0X3VzZXJfcGFzc3dvcmQ9dHJ1ZQpjb25maWdfZHJpdmVfcmF3X2hoZD10cnVlCmNvbmZpZ19kcml2ZV9jZHJvbT10cnVlCmNvbmZpZ19kcml2ZV92ZmF0PXRydWUKYnNkdGFyX3BhdGg9QzpcUHJvZ3Jh&gt;&gt;C:\Windows\Temp\bootstrap.b64</CommandLine>
+          <Description>winbuild step 14</Description>
+          <Order>14</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>cmd /c echo bSBGaWxlc1xDbG91ZGJhc2UgU29sdXRpb25zXENsb3VkYmFzZS1Jbml0XGJpblxic2R0YXIuZXhlCm10b29sc19wYXRoPUM6XFByb2dyYW0gRmlsZXNcQ2xvdWRiYXNlIFNvbHV0aW9uc1xDbG91ZGJhc2UtSW5pdFxiaW5cCnZlcmJvc2U9dHJ1ZQpkZWJ1Zz10cnVlCmxvZ2Rpcj1DOlxQcm9ncmFtIEZpbGVzXENsb3VkYmFzZSBTb2x1dGlvbnNcQ2xvdWRiYXNlLUluaXRcbG9nXApkZWZhdWx0X2xvZ19sZXZlbHM9Y29tdHlwZXM9SU5GTyxzdWRzPUlORk8saXNvODYwMT1XQVJOLHJlcXVlc3RzPVdBUk4KbG9nZ2luZ19zZXJpYWxfcG9ydF9zZXR0aW5ncz1DT00xLDExNTIwMCxOLDgKbXR1X3VzZV9kaGNwX2NvbmZpZz10cnVlCm50cF91c2VfZGhjcF9jb25maWc9dHJ1ZQpsb2NhbF9zY3JpcHRzX3BhdGg9QzpcUHJvZ3JhbSBGaWxlc1xDbG91ZGJhc2UgU29sdXRpb25zXENsb3VkYmFzZS1Jbml0XExvY2FsU2NyaXB0c1wKbWV0YWRhdGFfc2VydmljZXM9Y2xvdWRiYXNlaW5pdC5tZXRhZGF0YS5zZXJ2aWNlcy5ub2Nsb3Vkc2Vy&gt;&gt;C:\Windows\Temp\bootstrap.b64</CommandLine>
+          <Description>winbuild step 15</Description>
+          <Order>15</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>cmd /c echo dmljZS5Ob0Nsb3VkQ29uZmlnRHJpdmVTZXJ2aWNlLGNsb3VkYmFzZWluaXQubWV0YWRhdGEuc2VydmljZXMuY29uZmlnZHJpdmUuQ29uZmlnRHJpdmVTZXJ2aWNlLGNsb3VkYmFzZWluaXQubWV0YWRhdGEuc2VydmljZXMuYmFzZS5FbXB0eU1ldGFkYXRhU2VydmljZQonQAoKIyBhbGxvd19yZWJvb3Q9ZmFsc2UgaXMgQ1JJVElDQUw6IG9uIGZpcnN0IGJvb3QgdGhlIG1haW4gc2VydmljZSBydW5zIGR1cmluZyB0aGUKIyBzeXNwcmVwICpzcGVjaWFsaXplKiBwYXNzLiBJZiBTZXRIb3N0TmFtZVBsdWdpbiAob3IgYW55IHBsdWdpbikgcmVxdWVzdHMgYQojIHJlYm9vdCBhbmQgYWxsb3dfcmVib290IGRlZmF1bHRzIHRvIHRydWUsIHRoZSBzZXJ2aWNlIHJlYm9vdHMgdGhlIG1hY2hpbmUgb3V0CiMgZnJvbSB1bmRlciBXaW5kb3dzIFNldHVwIC0+ICJUaGUgY29tcHV0ZXIgcmVzdGFydGVkIHVuZXhwZWN0ZWRseSBvciBlbmNvdW50ZXJlZAojIGFuIHVuZXhwZWN0ZWQgZXJyb3IuIFdpbmRvd3MgaW5zdGFsbGF0aW9uIGNhbm5v&gt;&gt;C:\Windows\Temp\bootstrap.b64</CommandLine>
+          <Description>winbuild step 16</Description>
+          <Order>16</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>cmd /c echo dCBwcm9jZWVkLiIgYm9vdCBsb29wLiBXaXRoCiMgYWxsb3dfcmVib290PWZhbHNlIHRoZSBob3N0bmFtZSBpcyBqdXN0IHdyaXR0ZW4gYW5kIGFwcGxpZWQgYnkgU2V0dXAncyBvd24KIyBzYW5jdGlvbmVkIHJlYm9vdCBhdCB0aGUgZW5kIG9mIHNwZWNpYWxpemUuIE9ubHkgYml0ZXMgd2hlbiBhIG1ldGFkYXRhL2NvbmZpZwojIChOb0Nsb3VkKSBkaXNrIGlzIGF0dGFjaGVkIChvdGhlcndpc2UgdGhlcmUncyBubyBob3N0bmFtZSB0byBzZXQpLgokbWFpbkNvbmYgPSAkY29tbW9uICsgImBubG9nZmlsZT1jbG91ZGJhc2UtaW5pdC5sb2dgbmNoZWNrX2xhdGVzdF92ZXJzaW9uPXRydWVgbmFsbG93X3JlYm9vdD1mYWxzZWBuc3RvcF9zZXJ2aWNlX29uX2V4aXQ9ZmFsc2VgbiIKJHVuYXR0ZW5kQ29uZiA9ICRjb21tb24gKyBAJwoKbG9nZmlsZT1jbG91ZGJhc2UtaW5pdC11bmF0dGVuZC5sb2cKcGx1Z2lucz1jbG91ZGJhc2Vpbml0LnBsdWdpbnMuY29tbW9uLm10dS5NVFVQbHVnaW4sY2xvdWRiYXNlaW5pdC5wbHVnaW5zLmNv&gt;&gt;C:\Windows\Temp\bootstrap.b64</CommandLine>
+          <Description>winbuild step 17</Description>
+          <Order>17</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>cmd /c echo bW1vbi5zZXRob3N0bmFtZS5TZXRIb3N0TmFtZVBsdWdpbixjbG91ZGJhc2Vpbml0LnBsdWdpbnMud2luZG93cy5leHRlbmR2b2x1bWVzLkV4dGVuZFZvbHVtZXNQbHVnaW4KY2hlY2tfbGF0ZXN0X3ZlcnNpb249ZmFsc2UKYWxsb3dfcmVib290PWZhbHNlCnN0b3Bfc2VydmljZV9vbl9leGl0PWZhbHNlCidACgpTZXQtQ29udGVudCAtUGF0aCAoSm9pbi1QYXRoICRjYmlDb25mICdjbG91ZGJhc2UtaW5pdC5jb25mJykgLVZhbHVlICRtYWluQ29uZiAtRW5jb2RpbmcgQVNDSUkKU2V0LUNvbnRlbnQgLVBhdGggKEpvaW4tUGF0aCAkY2JpQ29uZiAnY2xvdWRiYXNlLWluaXQtdW5hdHRlbmQuY29uZicpIC1WYWx1ZSAkdW5hdHRlbmRDb25mIC1FbmNvZGluZyBBU0NJSQpMb2cgJ0NCSSBjb25mIGZpbGVzIHdyaXR0ZW4nCgojIDViLiBSZS1lbmFibGUgV2luZG93cyBVcGRhdGUgb24gdGhlIGRlcGxveWVkIGNsb25lLiBTZXR1cENvbXBsZXRlLmNtZCBpcyBydW4KIyBvbmNlIGJ5IFdpbmRvd3MgU2V0dXAgYXQgdGhlIGVuZCBvZiB0&gt;&gt;C:\Windows\Temp\bootstrap.b64</CommandLine>
+          <Description>winbuild step 18</Description>
+          <Order>18</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>cmd /c echo aGUgc3BlY2lhbGl6ZS9PT0JFIHBhc3Mgb24gZXZlcnkgVk0KIyBjbG9uZWQgZnJvbSB0aGlzIGltYWdlLCBhbmQgaXQgc3Vydml2ZXMgc3lzcHJlcCAvZ2VuZXJhbGl6ZSDigJQgc28gdGhlIGJ1aWxkCiMgc3RheXMgZnJvemVuIChzZWUgc3RlcCAwYSkgcmlnaHQgdGhyb3VnaCBnZW5lcmFsaXplLCB3aGlsZSB0aGUgaW1hZ2UgaXRzZWxmCiMgZG9lcyBub3Qgc2hpcCB3aXRoIHNlcnZpY2luZyBwZXJtYW5lbnRseSBkaXNhYmxlZC4KJHNldHVwU2NyaXB0cyA9ICdDOlxXaW5kb3dzXFNldHVwXFNjcmlwdHMnCk5ldy1JdGVtIC1JdGVtVHlwZSBEaXJlY3RvcnkgLUZvcmNlICRzZXR1cFNjcmlwdHMgfCBPdXQtTnVsbApAJwpAZWNobyBvZmYKcmVtIFVuZG8gdGhlIGJ1aWxkLXRpbWUgc2VydmljaW5nIGZyZWV6ZSBmcm9tIGJvb3RzdHJhcC5wczEgc3RlcCAwYS4Kc2MgY29uZmlnIHd1YXVzZXJ2IHN0YXJ0PSBkZW1hbmQKc2MgY29uZmlnIFVzb1N2YyBzdGFydD0gYXV0bwpzYyBjb25maWcgV2FhU01lZGljU3ZjIHN0YXJ0PSBk&gt;&gt;C:\Windows\Temp\bootstrap.b64</CommandLine>
+          <Description>winbuild step 19</Description>
+          <Order>19</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>cmd /c echo ZW1hbmQKc2MgY29uZmlnIEluc3RhbGxTZXJ2aWNlIHN0YXJ0PSBkZW1hbmQKc2MgY29uZmlnIERvU3ZjIHN0YXJ0PSBhdXRvCnJlZyBkZWxldGUgIkhLTE1cU09GVFdBUkVcUG9saWNpZXNcTWljcm9zb2Z0XFdpbmRvd3NcV2luZG93c1VwZGF0ZSIgL2YKcmVnIGRlbGV0ZSAiSEtMTVxTT0ZUV0FSRVxQb2xpY2llc1xNaWNyb3NvZnRcV2luZG93c1N0b3JlIiAvdiBBdXRvRG93bmxvYWQgL2YKZXhpdCAvYiAwCidAIHwgU2V0LUNvbnRlbnQgLVBhdGggKEpvaW4tUGF0aCAkc2V0dXBTY3JpcHRzICdTZXR1cENvbXBsZXRlLmNtZCcpIC1FbmNvZGluZyBBU0NJSQpMb2cgJ1dyb3RlIFNldHVwQ29tcGxldGUuY21kIHRvIHJlc3RvcmUgc2VydmljaW5nIG9uIGRlcGxveWVkIGNsb25lcycKCiMgNWMuIE1pbmltaXplIHRoZSBnb2xkZW4gaW1hZ2UuIFR3byB0aGluZ3Mgc2hyaW5rIHRoZSBleHBvcnRlZCBpbWFnZToKIyAgICgxKSBkZWxldGUgYnVpbGQgc2NyYXRjaCBzbyBpdCBpcyBub3QgYmFrZWQgaW50byB0aGUgaW1hZ2UsIGFu&gt;&gt;C:\Windows\Temp\bootstrap.b64</CommandLine>
+          <Description>winbuild step 20</Description>
+          <Order>20</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>cmd /c echo ZAojICAgKDIpIHplcm8gdGhlIHJlbWFpbmluZyBOVEZTIGZyZWUgc3BhY2Ugc28gYHFlbXUtaW1nIGNvbnZlcnRgICh3aGljaCBkcm9wcwojICAgICAgIHJ1bnMgb2YgemVyb3MpIHByb2R1Y2VzIGEgY29tcGFjdCBxY293Mi4gV2luZG93cyBzaGlwcyBubyBzZGVsZXRlLCBzbwojICAgICAgIGZpbGwgZnJlZSBzcGFjZSB3aXRoIGEgemVybyBmaWxlLCB0aGVuIGRlbGV0ZSBpdC4KIyBOT1RFOiB0aGUgemVyby1maWxsIGJyaWVmbHkgYWxsb2NhdGVzIG1vc3Qgb2YgdGhlIHJvb3RkaXNrIGluIHRoZSB0aGluIHBvb2wuCiMgU2tpcCBpdCAoY29tbWVudCBvdXQgdGhlIHplcm8tZmlsbCBibG9jaykgaWYgeW91ciBidWlsZCB2b2x1bWUgc2hhcmVzIGEKIyBuZWFybHktZnVsbCB0aGluIHBvb2wuCkxvZyAnQ2xlYW5pbmcgdXAgYnVpbGQgc2NyYXRjaC4uLicKUmVtb3ZlLUl0ZW0gQzpcV2luZG93c1xUZW1wXGJvb3RzdHJhcC5iNjQsIEM6XGJvb3RzdHJhcC5wczEsIGAKICBDOlxXaW5kb3dzXFRlbXBcdm1kcC1leHRyYWN0ZWQs&gt;&gt;C:\Windows\Temp\bootstrap.b64</CommandLine>
+          <Description>winbuild step 21</Description>
+          <Order>21</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>cmd /c echo IEM6XFdpbmRvd3NcVGVtcFxWTURQLVdJTi0yLjUuNS5leGUsIGAKICBDOlxXaW5kb3dzXFRlbXBcQ2xvdWRiYXNlSW5pdFNldHVwX3g2NC5tc2kgLVJlY3Vyc2UgLUZvcmNlIC1FQSBTaWxlbnRseUNvbnRpbnVlCgojIFN0b3Agc2hvcnQgb2YgRU5PU1BDLiBzeXNwcmVwIC9nZW5lcmFsaXplIHN0aWxsIGhhcyB0byB3cml0ZSAocmVnaXN0cnkKIyBzZXJ2aWNpbmcsIEFwcFggc3RhdGUsIGl0cyBvd24gUGFudGhlciBsb2dzKSwgYW5kIE5URlMgZG9lcyBub3QgaGFuZCBldmVyeQojIGJ5dGUgc3RyYWlnaHQgYmFjayB0aGUgaW5zdGFudCB0aGUgZmlsbCBmaWxlIGlzIGRlbGV0ZWQg4oCUIGEgYnVpbGQgdGhhdCByYW4KIyB0aGUgZmlsbCB0byBFTk9TUEMgcmVhY2hlZCBzeXNwcmVwIHdpdGggKm5lZ2F0aXZlKiByZXBvcnRlZCBmcmVlIHNwYWNlIGFuZAojIGdlbmVyYWxpemUgZmFpbGVkLiAkcmVzZXJ2ZSBpcyB3aGF0IHN0YXlzIGZyZWU7IHRoZSBleHRyYSB1bnplcm9lZCBieXRlcyBjb3N0CiMgYSBmZXcgaHVuZHJlZCBN&gt;&gt;C:\Windows\Temp\bootstrap.b64</CommandLine>
+          <Description>winbuild step 22</Description>
+          <Order>22</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>cmd /c echo aUIgaW4gdGhlIGV4cG9ydGVkIGltYWdlLCB3aGljaCBpcyBhIGZhaXIgdHJhZGUuCiRyZXNlcnZlID0gMkdCCiR6ZXJvID0gJ0M6XHplcm8uZmlsbCcKTG9nICgiWmVyb2luZyBmcmVlIHNwYWNlIChsZWF2aW5nIHswOk4wfSBHaUIpLi4uIiAtZiAoJHJlc2VydmUgLyAxR0IpKQp0cnkgewogICR0YXJnZXQgPSAoR2V0LVZvbHVtZSAtRHJpdmVMZXR0ZXIgQykuU2l6ZVJlbWFpbmluZyAtICRyZXNlcnZlCiAgaWYgKCR0YXJnZXQgLWd0IDApIHsKICAgICRjaHVuayA9IDY0TUIKICAgICRidWYgPSBOZXctT2JqZWN0IGJ5dGVbXSAkY2h1bmsKICAgICRmcyA9IFtTeXN0ZW0uSU8uRmlsZV06OkNyZWF0ZSgkemVybykKICAgIHRyeSB7CiAgICAgICR3cml0dGVuID0gMAogICAgICB3aGlsZSAoJHdyaXR0ZW4gLWx0ICR0YXJnZXQpIHsKICAgICAgICAkbiA9IFtpbnRdW21hdGhdOjpNaW4oJGNodW5rLCAkdGFyZ2V0IC0gJHdyaXR0ZW4pCiAgICAgICAgJGZzLldyaXRlKCRidWYsIDAsICRuKQogICAgICAgICR3cml0dGVuICs9ICRu&gt;&gt;C:\Windows\Temp\bootstrap.b64</CommandLine>
+          <Description>winbuild step 23</Description>
+          <Order>23</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>cmd /c echo CiAgICAgIH0KICAgIH0gZmluYWxseSB7ICRmcy5DbG9zZSgpIH0KICB9Cn0gY2F0Y2ggeyBMb2cgInplcm8tZmlsbCBub3RlOiAkXyIgfQpSZW1vdmUtSXRlbSAkemVybyAtRm9yY2UgLUVBIFNpbGVudGx5Q29udGludWUKJGZyZWUgPSAoR2V0LVZvbHVtZSAtRHJpdmVMZXR0ZXIgQykuU2l6ZVJlbWFpbmluZwpMb2cgKCJGcmVlIHNwYWNlIHplcm9lZDsgezA6TjJ9IEdpQiBmcmVlIiAtZiAoJGZyZWUgLyAxR0IpKQppZiAoJGZyZWUgLWx0IDFHQikgeyBMb2cgJ0VSUk9SOiBsZXNzIHRoYW4gMSBHaUIgZnJlZSAtIHN5c3ByZXAgd2lsbCBmYWlsJzsgZXhpdCAxIH0KCiMgNi4gUnVuIHN5c3ByZXAgL2dlbmVyYWxpemUgL3NodXRkb3duIHVzaW5nIENCSS1wcm92aWRlZCBVbmF0dGVuZC54bWwuCiMgQ29weSB0aGUgZmlsZSB0byBhIHNwYWNlcy1mcmVlIHBhdGggZmlyc3Qg4oCUIFN0YXJ0LVByb2Nlc3MgLUFyZ3VtZW50TGlzdCBhcnJheQojIGpvaW5zIGl0ZW1zIHdpdGggcGxhaW4gc3BhY2VzLCBicmVha2luZyBhbnkgcGF0&gt;&gt;C:\Windows\Temp\bootstrap.b64</CommandLine>
+          <Description>winbuild step 24</Description>
+          <Order>24</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>cmd /c echo aCBhcmcgdGhhdCBjb250YWlucyBzcGFjZXMuCiRjYmlVbmF0dGVuZCA9IEpvaW4tUGF0aCAkY2JpQ29uZiAnVW5hdHRlbmQueG1sJwppZiAoLW5vdCAoVGVzdC1QYXRoICRjYmlVbmF0dGVuZCkpIHsgTG9nICJFUlJPUjogQ0JJIFVuYXR0ZW5kLnhtbCBtaXNzaW5nIGF0ICRjYmlVbmF0dGVuZCI7IGV4aXQgMSB9CiRzeXNwVW5hdHRlbmQgPSAnQzpcV2luZG93c1xUZW1wXGNiaS11bmF0dGVuZC54bWwnCkNvcHktSXRlbSAtRm9yY2UgJGNiaVVuYXR0ZW5kICRzeXNwVW5hdHRlbmQKTG9nICJDb3BpZWQgQ0JJIFVuYXR0ZW5kIHRvICRzeXNwVW5hdHRlbmQiCkxvZyAnUnVubmluZyBzeXNwcmVwIC9nZW5lcmFsaXplIC9vb2JlIC9zaHV0ZG93biAuLi4nClN0YXJ0LVByb2Nlc3MgLUZpbGVQYXRoICIkZW52OldJTkRJUlxTeXN0ZW0zMlxzeXNwcmVwXHN5c3ByZXAuZXhlIiBgCiAgLUFyZ3VtZW50TGlzdCAnL2dlbmVyYWxpemUnLCcvb29iZScsJy9zaHV0ZG93bicsIi91bmF0dGVuZDokc3lzcFVuYXR0ZW5kIgpMb2cgJz09PSBi&gt;&gt;C:\Windows\Temp\bootstrap.b64</CommandLine>
+          <Description>winbuild step 25</Description>
+          <Order>25</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>cmd /c echo b290c3RyYXAgZG9uZSAoc3lzcHJlcCB3aWxsIHNodXQgdGhlIFZNIGRvd24pID09PScK&gt;&gt;C:\Windows\Temp\bootstrap.b64</CommandLine>
+          <Description>winbuild step 26</Description>
+          <Order>26</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>powershell -NoProfile -ExecutionPolicy Bypass -Command "[IO.File]::WriteAllBytes('C:\bootstrap.ps1',[Convert]::FromBase64String((Get-Content -Raw 'C:\Windows\Temp\bootstrap.b64')))"</CommandLine>
+          <Description>winbuild step 27</Description>
+          <Order>27</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>powershell -NoProfile -ExecutionPolicy Bypass -File C:\bootstrap.ps1</CommandLine>
+          <Description>winbuild step 28</Description>
+          <Order>28</Order>
+        </SynchronousCommand>
+      </FirstLogonCommands>
+      <OOBE>
+        <HideEULAPage>true</HideEULAPage>
+        <HideOEMRegistrationScreen>true</HideOEMRegistrationScreen>
+        <SkipMachineOOBE>true</SkipMachineOOBE>
+        <SkipUserOOBE>true</SkipUserOOBE>
+      </OOBE>
+      <RegisteredOrganization>SUSE</RegisteredOrganization>
+      <RegisteredOwner>Administrator</RegisteredOwner>
+      <TimeZone>UTC</TimeZone>
+      <UserAccounts>
+        <AdministratorPassword>
+          <Value>HarvesterBuild1!</Value>
+          <PlainText>true</PlainText>
+        </AdministratorPassword>
+      </UserAccounts>
+    </component>
+    <component name="Microsoft-Windows-International-Core" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <InputLocale>en-US</InputLocale>
+      <SystemLocale>en-US</SystemLocale>
+      <UILanguage>en-US</UILanguage>
+      <UserLocale>en-US</UserLocale>
+    </component>
+  </settings>
+</unattend>

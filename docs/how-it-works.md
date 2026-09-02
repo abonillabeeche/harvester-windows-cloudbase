@@ -57,7 +57,7 @@ remastering.
 Every key in the Secret becomes a file at the root of that ISO. That detail
 drives the two supported answer-file layouts (see below).
 
-## 2. The answer file (`Autounattend.xml`)
+## 2. The answer file (`Autounattend-<version>.xml`)
 
 A Windows unattend file scripts Setup across several *passes*. We use two:
 
@@ -69,6 +69,11 @@ A Windows unattend file scripts Setup across several *passes*. We use two:
     installs noticeably slower.)
   - wipe and partition the rootdisk and apply the Windows image (`ImageInstall`
     → `/IMAGE/NAME` must match an edition inside the ISO's `install.wim`).
+
+  Both of these are why there is one base answer file **per Windows version** —
+  the edition string differs, and Windows 11 needs a UEFI/GPT partition layout
+  where the Server releases use BIOS. See
+  [windows-versions.md](windows-versions.md).
 - **`oobeSystem`** — runs on first boot. Here we auto-logon Administrator and
   fire `FirstLogonCommands`, which launches `bootstrap.ps1`.
 
@@ -86,8 +91,8 @@ ship `bootstrap.ps1`:
 | **Two-file** | `autounattend.xml` + `bootstrap.ps1` | `FirstLogonCommands` scans the optical drives for `bootstrap.ps1` | `kubectl` and Terraform |
 | **Single-file** | `autounattend.xml` only | `bootstrap.ps1` is base64-folded *into* `FirstLogonCommands` | the Harvester UI's **Windows Unattended & Sysprep** form (v1.9+), which only writes one key |
 
-`build-answerfile.py` converts the two-file sources into the single-file
-artifact. See [ui-sysprep.md](ui-sysprep.md).
+`build-answerfile.py -w <version>` converts the two-file sources into the
+single-file artifact. See [ui-sysprep.md](ui-sysprep.md).
 
 ## 4. `bootstrap.ps1` — the first-boot provisioner
 
@@ -121,7 +126,7 @@ Two conf profiles are written:
   `runcmd`, etc. from your per-VM cloud-config.
 - `cloudbase-init-unattend.conf` — the specialize/sysprep run: a minimal plugin
   set including **`ExtendVolumesPlugin`**, which grows `C:` to fill the target
-  disk. This is why a 32 GiB image deployed onto a 200 GiB VM disk comes up with
+  disk. This is why a 36 GiB image deployed onto a 200 GiB VM disk comes up with
   a 200 GiB `C:` — no manual `diskpart`.
 
 ## 6. "Clean up so it comes back clean"

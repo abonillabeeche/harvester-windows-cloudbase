@@ -15,7 +15,7 @@ accepts the content it validates, client-side, that the XML:
 - has the root namespace `urn:schemas-microsoft-com:unattend`
   (i.e. `<unattend xmlns="urn:schemas-microsoft-com:unattend">`).
 
-Both `Autounattend.xml` and `Autounattend-w11.xml` in this repo pass that check.
+Every `Autounattend-*.xml` in this repo passes that check.
 
 ## The constraint: one file only
 
@@ -31,9 +31,14 @@ The fix is to **fold `bootstrap.ps1` into the answer file itself.**
 
 ```bash
 cd kubectl/
-./build-answerfile.py           # reads Autounattend.xml + bootstrap.ps1
-# → writes Autounattend-selfcontained.xml
+./build-answerfile.py -w 2025   # reads Autounattend-2025.xml + bootstrap.ps1
+# → writes Autounattend-selfcontained-2025.xml
 ```
+
+`-w/--windows-version` (`2022` | `2025` | `w11`) is **required**: it picks the
+base answer file and pins the `/IMAGE/NAME` edition string, which has to match
+your ISO's `install.wim` exactly. See
+[windows-versions.md](windows-versions.md).
 
 It base64-encodes `bootstrap.ps1`, splits it into ≤700-character chunks, and
 rewrites `FirstLogonCommands` to:
@@ -57,23 +62,25 @@ mid-install.
 
 ## Using it in the UI
 
-1. The ready-to-paste file is already checked in at
-   [`kubectl/Autounattend-selfcontained.xml`](../kubectl/Autounattend-selfcontained.xml)
-   — open it and copy the whole contents. Only regenerate it (see below) if
-   you've edited `Autounattend.xml` or `bootstrap.ps1`.
+1. The ready-to-paste files are already checked in, one per Windows version:
+   [`Autounattend-selfcontained-2022.xml`](../kubectl/Autounattend-selfcontained-2022.xml),
+   [`-2025.xml`](../kubectl/Autounattend-selfcontained-2025.xml),
+   [`-w11.xml`](../kubectl/Autounattend-selfcontained-w11.xml)
+   — open the one matching your ISO and copy the whole contents. Only regenerate
+   it (see below) if you've edited the base answer file or `bootstrap.ps1`.
 2. **Virtual Machines → Create → From Template →**
    `windows-iso-image-base-template` (namespace `harvester-public`, the stock
    built-in). It provides the CD-ROM boot disk, a rootdisk, and the VMDP driver
    CD (`registry.suse.com/suse/vmdp/vmdp:2.5.5`). Set the CD-ROM's **Image** to
    your Windows ISO; on the **Volume** tab set the rootdisk bus to
-   **virtio-scsi**, reduce it to **32Gi**, and pick your tested StorageClass
+   **virtio-scsi**, reduce it to **36Gi**, and pick your tested StorageClass
    (`harvester-longhorn` is fine; use access mode **Single-Node/ReadWriteOnce**
    if the class is RWO-only); under **Advanced Options** enable the **Hyper-V
    enlightenments** for a fast install.
 3. **Advanced Options → set OS Type = `Windows`.** The **Windows Unattended &
    Sysprep Configuration** section only appears once the OS type is Windows.
    Then **Create New**, name the secret (e.g. `winbuild-unattend`), and paste
-   the contents of `Autounattend-selfcontained.xml`.
+   the contents of `Autounattend-selfcontained-<version>.xml`.
 4. **Create.** The VM installs, sypreps, and powers off.
 
 > **Version/name caveats.**
@@ -86,7 +93,7 @@ mid-install.
 > - **Template names vary by cluster/version.**
 >   `windows-iso-image-base-template` is the stock built-in; some clusters also
 >   ship sized variants (`windows-iso-small` / `-medium` / `-large`). If none
->   exist, build a blank VM with a CD-ROM boot disk, a 32Gi virtio-scsi
+>   exist, build a blank VM with a CD-ROM boot disk, a 36Gi virtio-scsi
 >   rootdisk, and a container-image volume `registry.suse.com/suse/vmdp/vmdp:2.5.5`
 >   — matching [`kubectl/winbuild-vm.yaml`](../kubectl/winbuild-vm.yaml).
 
@@ -94,12 +101,12 @@ Or create the secret from the generated file directly:
 
 ```bash
 kubectl create secret generic winbuild-unattend \
-  --from-file=autounattend.xml=kubectl/Autounattend-selfcontained.xml
+  --from-file=autounattend.xml=kubectl/Autounattend-selfcontained-2025.xml
 ```
 
 ## Re-generate whenever the sources change
 
-`Autounattend-selfcontained.xml` is a build artifact — regenerate it any time
-you edit `Autounattend.xml` or `bootstrap.ps1`. If you change the answer file
+`Autounattend-selfcontained-<version>.xml` is a build artifact — regenerate it
+any time you edit `Autounattend-<version>.xml` or `bootstrap.ps1`. If you change the answer file
 enough to alter its structure, keep exactly one `<FirstLogonCommands>` block:
 the generator replaces that single block and errors if it finds zero or many.
