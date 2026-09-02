@@ -118,22 +118,29 @@ Set-Content -Path (Join-Path $cbiConf 'cloudbase-init.conf')          -Value $ma
 Set-Content -Path (Join-Path $cbiConf 'cloudbase-init-unattend.conf') -Value $unattendConf -Encoding ASCII
 Log 'CBI conf files written'
 
-# Remove AppX packages that block sysprep /generalize (0x80073cf2 in
-# AppxSysprep.dll: a package "installed for a user, but not provisioned for all
-# users" — usually Microsoft Edge). Strip per-user + provisioned copies, then
-# hard-uninstall Chromium Edge as a fallback.
-Log 'Removing AppX packages that block sysprep generalize...'
+# Reconcile AppX packages so sysprep /generalize won't abort with 0x80073cf2
+# ("installed for a user, but not provisioned for all users"; modern Chromium
+# Edge — Microsoft.MicrosoftEdge.Stable — is the classic culprit). Do NOT blanket
+# Remove-AppxProvisionedPackage: deprovisioning a package whose per-user copy then
+# refuses to uninstall is what *creates* the mismatch. Instead: best-effort remove
+# per-user packages, hard-uninstall Chromium Edge, then a RECONCILIATION pass that
+# (re)provisions whatever is still installed so generalize stays consistent.
+Log 'Reconciling AppX packages for sysprep generalize...'
+Get-Process msedge,MicrosoftEdge,msedgewebview2 -EA SilentlyContinue | Stop-Process -Force -EA SilentlyContinue
 Get-AppxPackage -AllUsers -EA SilentlyContinue | ForEach-Object {
-  try { Remove-AppxPackage -AllUsers -Package $_.PackageFullName -EA Stop; Log "removed pkg $($_.Name)" } catch { Log "skip pkg $($_.Name)" }
-}
-Get-AppxProvisionedPackage -Online -EA SilentlyContinue | ForEach-Object {
-  try { Remove-AppxProvisionedPackage -Online -PackageName $_.PackageName -EA Stop | Out-Null; Log "deprovisioned $($_.DisplayName)" } catch { Log "skip prov $($_.DisplayName)" }
+  try { Remove-AppxPackage -AllUsers -Package $_.PackageFullName -EA Stop; Log "removed pkg $($_.Name)" } catch { Log "keep pkg $($_.Name)" }
 }
 $edgeSetup = Get-ChildItem 'C:\Program Files (x86)\Microsoft\Edge\Application\*\Installer\setup.exe' -EA SilentlyContinue | Select-Object -Last 1
 if ($edgeSetup) {
   try { Start-Process -FilePath $edgeSetup.FullName -ArgumentList '--uninstall','--system-level','--force-uninstall' -Wait -EA Stop } catch { Log "Edge uninstall warn: $_" }
 }
-Log 'AppX cleanup done'
+Get-AppxPackage -AllUsers -EA SilentlyContinue | ForEach-Object {
+  $manifest = Join-Path $_.InstallLocation 'AppxManifest.xml'
+  if (Test-Path $manifest) {
+    try { Add-AppxProvisionedPackage -Online -PackagePath $manifest -SkipLicense -EA Stop | Out-Null; Log "provisioned $($_.Name)" } catch { Log "provision skip $($_.Name)" }
+  }
+}
+Log 'AppX reconcile done'
 
 # Minimize the golden image: delete build scratch, then zero the remaining NTFS
 # free space so `qemu-img convert` (which drops runs of zeros) yields a compact

@@ -130,26 +130,44 @@ Set-Content -Path (Join-Path $cbiConf 'cloudbase-init.conf') -Value $mainConf -E
 Set-Content -Path (Join-Path $cbiConf 'cloudbase-init-unattend.conf') -Value $unattendConf -Encoding ASCII
 Log 'CBI conf files written'
 
-# 5b. Remove AppX packages that block sysprep /generalize.
-# setuperr.log fails with 0x80073cf2 in AppxSysprep.dll when a package is
-# "installed for a user, but not provisioned for all users" (Microsoft Edge is
-# the usual offender). Strip per-user packages, then their provisioned copies,
-# then hard-uninstall Chromium Edge via its own setup.exe as a fallback.
-Log 'Removing AppX packages that block sysprep generalize...'
+# 5b. Reconcile AppX packages so sysprep /generalize won't abort with 0x80073cf2
+# ("installed for a user, but not provisioned for all users" in AppxSysprep.dll;
+# modern Chromium Edge — Microsoft.MicrosoftEdge.Stable — is the classic culprit).
+#
+# IMPORTANT: do NOT blanket-run Remove-AppxProvisionedPackage. Deprovisioning a
+# package whose per-user copy then refuses to uninstall is exactly what *creates*
+# the mismatch that fails sysprep. Instead:
+#   (a) best-effort remove per-user packages (keeps the image lean),
+#   (b) hard-uninstall Chromium Edge via its own setup.exe (its AppX resists
+#       Remove-AppxPackage), and
+#   (c) a RECONCILIATION pass that (re)provisions every package STILL installed
+#       for a user. That last pass is what actually prevents the failure: whatever
+#       refused to uninstall is made consistent (provisioned == installed) so
+#       generalize is satisfied instead of aborting.
+Log 'Reconciling AppX packages for sysprep generalize...'
+# Edge tends to hold a running process; stop it so removal/uninstall can proceed.
+Get-Process msedge,MicrosoftEdge,msedgewebview2 -EA SilentlyContinue | Stop-Process -Force -EA SilentlyContinue
 Get-AppxPackage -AllUsers -EA SilentlyContinue | ForEach-Object {
   try { Remove-AppxPackage -AllUsers -Package $_.PackageFullName -EA Stop; Log "removed pkg $($_.Name)" }
-  catch { Log "skip pkg $($_.Name)" }
-}
-Get-AppxProvisionedPackage -Online -EA SilentlyContinue | ForEach-Object {
-  try { Remove-AppxProvisionedPackage -Online -PackageName $_.PackageName -EA Stop | Out-Null; Log "deprovisioned $($_.DisplayName)" }
-  catch { Log "skip prov $($_.DisplayName)" }
+  catch { Log "keep pkg $($_.Name)" }
 }
 $edgeSetup = Get-ChildItem 'C:\Program Files (x86)\Microsoft\Edge\Application\*\Installer\setup.exe' -EA SilentlyContinue | Select-Object -Last 1
 if ($edgeSetup) {
   Log "Uninstalling Chromium Edge via $($edgeSetup.FullName)"
   try { Start-Process -FilePath $edgeSetup.FullName -ArgumentList '--uninstall','--system-level','--force-uninstall' -Wait -EA Stop } catch { Log "Edge uninstall warn: $_" }
 }
-Log 'AppX cleanup done'
+# (c) Reconciliation: provision whatever is still installed for a user so there is
+# no "installed-but-not-provisioned" (or provisioned-but-newer-per-user) mismatch
+# left for generalize to trip over. -SkipLicense provisions from the installed
+# package's manifest without needing the original .appx + license file.
+Get-AppxPackage -AllUsers -EA SilentlyContinue | ForEach-Object {
+  $manifest = Join-Path $_.InstallLocation 'AppxManifest.xml'
+  if (Test-Path $manifest) {
+    try { Add-AppxProvisionedPackage -Online -PackagePath $manifest -SkipLicense -EA Stop | Out-Null; Log "provisioned $($_.Name)" }
+    catch { Log "provision skip $($_.Name): $($_.Exception.Message)" }
+  }
+}
+Log 'AppX reconcile done'
 
 # 5c. Minimize the golden image. Two things shrink the exported image:
 #   (1) delete build scratch so it is not baked into the image, and

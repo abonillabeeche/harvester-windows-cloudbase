@@ -92,12 +92,30 @@ SYSPRP Exit code of RemoveAllApps: 0x3cf2
 [0x0f0082] SYSPRP … AppxSysprep.dll … 0x80073cf2
 ```
 
-**Cause:** an AppX package (Microsoft Edge, most often) is installed for the
-current user but not provisioned for all users — sysprep `/generalize` refuses.
+**Cause:** an AppX package is **installed for the current user but not
+provisioned for all users** (or provisioned at an older version than the per-user
+copy) — sysprep `/generalize` refuses. Modern Chromium Edge
+(`Microsoft.MicrosoftEdge.Stable`) is the classic offender because it resists
+`Remove-AppxPackage`.
 
-**Fix:** already in `bootstrap.ps1` step 5b — remove per-user AppX packages,
-remove their provisioned copies, then hard-uninstall Chromium Edge via its own
-`setup.exe --uninstall --system-level --force-uninstall`.
+> **Gotcha:** blanket-running `Remove-AppxProvisionedPackage` for *every* package
+> makes this **worse**, not better. If you deprovision a package whose per-user
+> copy then refuses to uninstall, you have just manufactured the exact
+> "installed-but-not-provisioned" mismatch that fails generalize. An earlier
+> revision of `bootstrap.ps1` did this and hit 0x80073cf2 on the Edge Stable AppX.
+
+**Fix:** `bootstrap.ps1` step 5b now *reconciles* instead of blindly stripping:
+
+1. Stop any running `msedge`/`msedgewebview2` processes.
+2. Best-effort `Remove-AppxPackage -AllUsers` for each package (keeps the image
+   lean; unremovable ones are just left in place).
+3. Hard-uninstall Chromium Edge via its own
+   `setup.exe --uninstall --system-level --force-uninstall`.
+4. **Reconciliation pass** — for every package *still* installed for a user,
+   `Add-AppxProvisionedPackage -Online -PackagePath <InstallLocation>\AppxManifest.xml
+   -SkipLicense`. This makes provisioned == installed for whatever refused to
+   uninstall, so generalize is satisfied. `-SkipLicense` lets it provision from
+   the installed package's manifest without the original `.appx` + license file.
 
 ## virtio-scsi: Setup shows "no disks found"
 
