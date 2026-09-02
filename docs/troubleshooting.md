@@ -94,33 +94,43 @@ SYSPRP Exit code of RemoveAllApps: 0x3cf2
 
 **Cause:** an AppX package is **installed for the current user but not
 provisioned for all users** (or provisioned at an older version than the per-user
-copy) — sysprep `/generalize` refuses. Modern Chromium Edge
-(`Microsoft.MicrosoftEdge.Stable`) is the classic offender because it resists
-`Remove-AppxPackage`.
+copy) — sysprep `/generalize` refuses.
 
-> **Gotcha:** blanket-running `Remove-AppxProvisionedPackage` for *every* package
-> makes this **worse**, not better. If you deprovision a package whose per-user
-> copy then refuses to uninstall, you have just manufactured the exact
-> "installed-but-not-provisioned" mismatch that fails generalize. An earlier
-> revision of `bootstrap.ps1` did this and hit 0x80073cf2 on the Edge Stable AppX.
+The reason a *freshly installed* Windows drifts into that state mid-build is
+that the build VM has outbound internet (it downloads Cloudbase-Init), so
+**Windows Update and the Microsoft Store service the machine while the build
+runs**. The Store updates a preinstalled app for the Administrator account only
+and the mismatch appears. On Server 2025 the repeat offender is
+`Microsoft.DesktopAppInstaller` (winget); on older media it is usually Chromium
+Edge (`Microsoft.MicrosoftEdge.Stable`).
 
-**Fix:** `bootstrap.ps1` step 5b now *reconciles* instead of blindly stripping:
+**Fix:** `bootstrap.ps1` step 0a freezes servicing for the duration of the
+build, *before* anything else runs — stop and disable `wuauserv`, `UsoSvc`,
+`WaaSMedicSvc`, `InstallService` and `DoSvc`, and set the `WindowsStore`
+`AutoDownload=2` / `WindowsUpdate` `NoAutoUpdate=1` policies. The AppX state
+then stays exactly as the install media shipped it and generalize is satisfied.
+Step 5b writes `C:\Windows\Setup\Scripts\SetupComplete.cmd`, which Windows Setup
+runs once on every clone of the image, to put servicing back — so the golden
+image does not ship with Windows Update permanently disabled.
 
-1. Stop any running `msedge`/`msedgewebview2` processes.
-2. Best-effort `Remove-AppxPackage -AllUsers` for each package (keeps the image
-   lean; unremovable ones are just left in place).
-3. Hard-uninstall Chromium Edge via its own
-   `setup.exe --uninstall --system-level --force-uninstall`.
-4. **Reconciliation pass** — for every package *still* installed for a user,
-   `Add-AppxProvisionedPackage -Online -PackagePath <InstallLocation>\AppxManifest.xml
-   -SkipLicense`. This makes provisioned == installed for whatever refused to
-   uninstall, so generalize is satisfied. `-SkipLicense` lets it provision from
-   the installed package's manifest without the original `.appx` + license file.
-
-> **Validated end-to-end:** rebuilt from a clean `bootstrap.ps1` (this reconcile
-> fix + `allow_reboot=false` above) on a second Harvester v1.8.1 cluster —
-> `/generalize /shutdown` reached `Stopped` in ~12 min, no boot-loop, no
-> 0x80073cf2. Confirms the fix isn't cluster-specific (verified 2026-09-02).
+> **Gotcha — do not try to repair the drift after the fact.** Earlier revisions
+> of `bootstrap.ps1` tried to remove and then re-provision AppX packages to make
+> provisioned == installed. Every variant of that made things worse:
+>
+> - Blanket `Remove-AppxProvisionedPackage` *manufactures* the failure. Deprovision
+>   a package whose per-user copy then refuses to uninstall and you have created
+>   the exact mismatch generalize aborts on.
+> - `Remove-AppxPackage -AllUsers` can **deadlock indefinitely at 0% CPU**. Nothing
+>   in the AppX deployment stack times out, so one stuck package wedges the whole
+>   build. (Wrapping each call in `Start-Job`/`Wait-Job -Timeout` bounds it, but
+>   only converts a hang into a skipped package.)
+> - `Add-AppxProvisionedPackage` re-stages every package into
+>   `C:\Program Files\WindowsApps`. Run over ~30 packages, twice, that **filled a
+>   36 GiB build disk**: sysprep then ran with negative reported free space
+>   (`fsutil volume diskfree c:` showed `Total free bytes: -425,984`) and failed
+>   anyway — this time for lack of space, on a *different* package each run.
+>
+> Prevent the drift; don't chase it.
 
 ## virtio-scsi: Setup shows "no disks found"
 
@@ -137,6 +147,55 @@ entirely, set the rootdisk to `bus: sata` (slower install, native AHCI).
 > WHQL-signed** per-OS drivers (`pvvxscsi.inf`/`vioscsi.inf` for virtio-scsi —
 > SUSE uses the `pvvx*` prefix — plus `pvvxblk.inf`/`vrtioblk.inf`, in `2k22` /
 > `2k25` / `amd64` folders), which is exactly what `drvload`/DriverPaths needs.
+
+## Setup dies with "Error code: 0xD000A000 - 0x40031"
+
+**Symptom:** Setup starts, then fails early with
+*"Windows installation encountered an unexpected error. Error code:
+0xD000A000 - 0x40031"*. Pressing **Shift+F10** for a WinPE prompt and running
+`diskpart` → `list disk` reports **no fixed disks**.
+
+**Cause:** the `DriverPaths` entries point at *drive roots* (`D:\`, `E:\`, …).
+Setup then recursively scans each whole volume for INFs — including the
+multi-GB Windows install ISO and every other OS's folder on the VMDP CD. On
+larger media (Server 2025) that exceeds whatever time/depth budget DriverPaths
+has, so Setup reaches `DiskConfiguration` with no virtio-scsi driver loaded and
+cannot find the disk named in `ImageInstall`.
+
+Confirm it by `drvload`-ing the driver by hand from the Shift+F10 prompt:
+
+```
+drvload D:\Server2022-25-Win11\x64\pvvxscsi.inf
+diskpart
+  list disk        # the disk now appears
+```
+
+If that works instantly, the driver is fine and the scan was the problem.
+
+**Fix:** point each `PathAndCredentials` at the **exact nested driver folder**,
+not the CD root — `D:\Server2022-25-Win11\x64` etc. (this is what the checked-in
+answer files do). Missing drive letters are skipped, so listing `D:`–`G:` costs
+nothing.
+
+## The build fills the disk / sysprep fails with no space
+
+Check from inside the build VM:
+
+```
+fsutil volume diskfree c:
+```
+
+A near-zero — or *negative* — "Total free bytes" means the free-space zero-fill
+in `bootstrap.ps1` step 5c ran to `ENOSPC`. NTFS does not hand every byte back
+the moment the fill file is deleted, so sysprep `/generalize` then has nowhere
+to write and fails (usually surfacing as some *other* error, e.g. 0x80073cf2).
+
+**Fix:** step 5c reserves `$reserve = 2GB` and stops the fill there instead of
+running to `ENOSPC`, and aborts the build with a clear log line if under 1 GiB
+is free before sysprep. Raise `$reserve` if you add more to the image.
+
+> A build disk that is genuinely too small shows the same way. 36 GiB is enough
+> for Server 2022/2025 + VMDP + Cloudbase-Init with the 2 GiB reserve.
 
 ## VMDP setup pops an interactive dialog instead of installing silently
 
@@ -167,8 +226,8 @@ event *"The VirtualMachineInstance was shut down"* is the success signal.
 ## Windows 11 sysprep hangs on `Sysprep_Clean_Validate_Opk`
 
 Intermittent (~50%) on Windows 11 builds; Server 2022 is reliable. Usually
-Store apps that don't generalise cleanly — the AppX cleanup in step 5b is the
-mitigation. If it recurs, delete the VM + rootdisk and retry.
+Store apps that don't generalise cleanly — the servicing freeze in step 0a is
+the mitigation. If it recurs, delete the VM + rootdisk and retry.
 
 ## Cloudbase-Init didn't personalise the cloned VM
 

@@ -7,6 +7,38 @@ function Log($m) {
 
 Log '=== winbuild bootstrap starting ==='
 
+# Freeze the machine's software state for the duration of the build. The build
+# VM has outbound internet (it downloads Cloudbase-Init), so Windows Update and
+# the Microsoft Store will service the machine while the build runs. That is
+# what breaks sysprep: the Store silently updates a preinstalled app for the
+# Administrator account only (observed on Server 2025 with
+# Microsoft.DesktopAppInstaller), leaving it "installed for a user, but not
+# provisioned for all users", and generalize aborts with 0x80073cf2. Keeping
+# AppX exactly as the install media shipped it is the fix — do not try to
+# repair the drift afterwards. SetupComplete.cmd (written below) undoes this on
+# every deployed clone.
+foreach ($s in 'wuauserv','UsoSvc','WaaSMedicSvc','InstallService','DoSvc') {
+  try {
+    Stop-Service $s -Force -EA SilentlyContinue
+    Set-Service  $s -StartupType Disabled -EA Stop
+    Log "disabled service $s"
+  } catch { Log "could not disable $${s}: $_" }
+}
+$policies = @{
+  'HKLM:\SOFTWARE\Policies\Microsoft\WindowsStore'             = @{ AutoDownload = 2 }
+  'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate'    = @{ DoNotConnectToWindowsUpdateInternetLocations = 1 }
+  'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' = @{ NoAutoUpdate = 1 }
+}
+foreach ($key in $policies.Keys) {
+  try {
+    New-Item -Path $key -Force | Out-Null
+    foreach ($name in $policies[$key].Keys) {
+      Set-ItemProperty -Path $key -Name $name -Value $policies[$key][$name] -Type DWord
+    }
+  } catch { Log "policy warning on $${key}: $_" }
+}
+Log 'Windows Update + Microsoft Store servicing disabled for the build'
+
 %{ if install_openssh ~}
 # Install OpenSSH Server (adds ~6 minutes to build time)
 try {
@@ -118,47 +150,62 @@ Set-Content -Path (Join-Path $cbiConf 'cloudbase-init.conf')          -Value $ma
 Set-Content -Path (Join-Path $cbiConf 'cloudbase-init-unattend.conf') -Value $unattendConf -Encoding ASCII
 Log 'CBI conf files written'
 
-# Reconcile AppX packages so sysprep /generalize won't abort with 0x80073cf2
-# ("installed for a user, but not provisioned for all users"; modern Chromium
-# Edge — Microsoft.MicrosoftEdge.Stable — is the classic culprit). Do NOT blanket
-# Remove-AppxProvisionedPackage: deprovisioning a package whose per-user copy then
-# refuses to uninstall is what *creates* the mismatch. Instead: best-effort remove
-# per-user packages, hard-uninstall Chromium Edge, then a RECONCILIATION pass that
-# (re)provisions whatever is still installed so generalize stays consistent.
-Log 'Reconciling AppX packages for sysprep generalize...'
-Get-Process msedge,MicrosoftEdge,msedgewebview2 -EA SilentlyContinue | Stop-Process -Force -EA SilentlyContinue
-Get-AppxPackage -AllUsers -EA SilentlyContinue | ForEach-Object {
-  try { Remove-AppxPackage -AllUsers -Package $_.PackageFullName -EA Stop; Log "removed pkg $($_.Name)" } catch { Log "keep pkg $($_.Name)" }
-}
-$edgeSetup = Get-ChildItem 'C:\Program Files (x86)\Microsoft\Edge\Application\*\Installer\setup.exe' -EA SilentlyContinue | Select-Object -Last 1
-if ($edgeSetup) {
-  try { Start-Process -FilePath $edgeSetup.FullName -ArgumentList '--uninstall','--system-level','--force-uninstall' -Wait -EA Stop } catch { Log "Edge uninstall warn: $_" }
-}
-Get-AppxPackage -AllUsers -EA SilentlyContinue | ForEach-Object {
-  $manifest = Join-Path $_.InstallLocation 'AppxManifest.xml'
-  if (Test-Path $manifest) {
-    try { Add-AppxProvisionedPackage -Online -PackagePath $manifest -SkipLicense -EA Stop | Out-Null; Log "provisioned $($_.Name)" } catch { Log "provision skip $($_.Name)" }
-  }
-}
-Log 'AppX reconcile done'
+# Re-enable Windows Update on the deployed clone. SetupComplete.cmd is run once
+# by Windows Setup at the end of specialize/OOBE on every VM cloned from this
+# image, and it survives sysprep /generalize — so the build stays frozen right
+# through generalize while the image does not ship with servicing switched off.
+$setupScripts = 'C:\Windows\Setup\Scripts'
+New-Item -ItemType Directory -Force $setupScripts | Out-Null
+@'
+@echo off
+rem Undo the build-time servicing freeze from the top of bootstrap.ps1.
+sc config wuauserv start= demand
+sc config UsoSvc start= auto
+sc config WaaSMedicSvc start= demand
+sc config InstallService start= demand
+sc config DoSvc start= auto
+reg delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /f
+reg delete "HKLM\SOFTWARE\Policies\Microsoft\WindowsStore" /v AutoDownload /f
+exit /b 0
+'@ | Set-Content -Path (Join-Path $setupScripts 'SetupComplete.cmd') -Encoding ASCII
+Log 'Wrote SetupComplete.cmd to restore servicing on deployed clones'
 
 # Minimize the golden image: delete build scratch, then zero the remaining NTFS
 # free space so `qemu-img convert` (which drops runs of zeros) yields a compact
 # image. Windows has no sdelete, so fill free space with a zero file and delete.
-# The zero-fill briefly allocates the whole rootdisk in the thin pool; fine on a
-# small (32Gi) build disk. Comment it out if your thin pool is nearly full.
+# The zero-fill briefly allocates most of the rootdisk in the thin pool; comment
+# it out if your thin pool is nearly full.
+#
+# Stop short of ENOSPC: sysprep /generalize still has to write (registry
+# servicing, AppX state, Panther logs), and NTFS does not hand every byte back
+# the instant the fill file is deleted — a build that filled to ENOSPC reached
+# sysprep with *negative* reported free space and generalize failed.
 Log 'Cleaning up build scratch + zeroing free space...'
 Remove-Item C:\Windows\Temp\bootstrap.b64, C:\bootstrap.ps1, `
   C:\Windows\Temp\vmdp-extracted, C:\Windows\Temp\VMDP-WIN-2.5.5.exe, `
   C:\Windows\Temp\CloudbaseInitSetup_x64.msi -Recurse -Force -EA SilentlyContinue
+$reserve = 2GB
 $zero = 'C:\zero.fill'
 try {
-  $buf = New-Object byte[] (64MB)
-  $fs = [System.IO.File]::Create($zero)
-  try { while ($true) { $fs.Write($buf, 0, $buf.Length) } } catch { } finally { $fs.Close() }
+  $target = (Get-Volume -DriveLetter C).SizeRemaining - $reserve
+  if ($target -gt 0) {
+    $chunk = 64MB
+    $buf = New-Object byte[] $chunk
+    $fs = [System.IO.File]::Create($zero)
+    try {
+      $written = 0
+      while ($written -lt $target) {
+        $n = [int][math]::Min($chunk, $target - $written)
+        $fs.Write($buf, 0, $n)
+        $written += $n
+      }
+    } finally { $fs.Close() }
+  }
 } catch { Log "zero-fill note: $_" }
 Remove-Item $zero -Force -EA SilentlyContinue
-Log 'Minimize done'
+$free = (Get-Volume -DriveLetter C).SizeRemaining
+Log ("Minimize done; {0:N2} GiB free" -f ($free / 1GB))
+if ($free -lt 1GB) { Log 'ERROR: less than 1 GiB free - sysprep will fail'; exit 1 }
 
 # Sysprep. Copy CBI's Unattend.xml to a spaces-free path first — the
 # Start-Process -ArgumentList array joins tokens with plain spaces and

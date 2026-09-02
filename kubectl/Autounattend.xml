@@ -15,11 +15,21 @@
            skipped. Required only when the rootdisk uses `bus: scsi` (fast
            path). A `bus: sata` rootdisk installs on native AHCI and needs no
            driver injection, but is noticeably slower. -->
+      <!-- Point at the VMDP CD's exact nested driver folder, NOT the CD root.
+           A bare D:\ makes Setup walk that whole volume looking for INFs - and
+           one of D:-G: is the multi-GB Windows install ISO, while the VMDP CD
+           root holds every other OS's driver folder (Server2012-Win8,
+           Server2016-19-Win10, ...). On larger media that blows whatever
+           time/depth budget DriverPaths has: Setup reaches DiskConfiguration
+           with no virtio-scsi driver loaded and dies with
+           "Error code: 0xD000A000 - 0x40031" (it cannot find the disk named in
+           ImageInstall because it never saw one). Missing letters are skipped,
+           so listing all four is free. -->
       <DriverPaths>
-        <PathAndCredentials wcm:action="add" wcm:keyValue="1"><Path>D:\</Path></PathAndCredentials>
-        <PathAndCredentials wcm:action="add" wcm:keyValue="2"><Path>E:\</Path></PathAndCredentials>
-        <PathAndCredentials wcm:action="add" wcm:keyValue="3"><Path>F:\</Path></PathAndCredentials>
-        <PathAndCredentials wcm:action="add" wcm:keyValue="4"><Path>G:\</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="1"><Path>D:\Server2022-25-Win11\x64</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="2"><Path>E:\Server2022-25-Win11\x64</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="3"><Path>F:\Server2022-25-Win11\x64</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="4"><Path>G:\Server2022-25-Win11\x64</Path></PathAndCredentials>
       </DriverPaths>
     </component>
     <component name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
