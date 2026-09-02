@@ -75,25 +75,33 @@ mid-install.
    your Windows ISO; on the **Volume** tab set the rootdisk bus to
    **virtio-scsi**, reduce it to **36Gi**, and pick your tested StorageClass
    (`harvester-longhorn` is fine; use access mode **Single-Node/ReadWriteOnce**
-   if the class is RWO-only); under **Advanced Options** enable the **Hyper-V
-   enlightenments** for a fast install.
+   if the class is RWO-only).
 3. **Advanced Options → set OS Type = `Windows`.** The **Windows Unattended &
    Sysprep Configuration** section only appears once the OS type is Windows.
    Then **Create New**, name the secret (e.g. `winbuild-unattend`), and paste
    the contents of `Autounattend-selfcontained-<version>.xml`.
 4. **Create.** The VM installs, sypreps, and powers off.
 
-> **Version/name caveats.**
+> **Caveats.**
 > - The **OS Type = Windows** step in (3) is easy to miss: without it the
 >   Unattended & Sysprep section is hidden entirely.
-> - On **Harvester v1.9+**, the disk-bus / Hyper-V / cloud-init choices in (2)
->   are largely defaults for Windows VMs
->   ([harvester/harvester#11124](https://github.com/harvester/harvester/issues/11124)),
->   so a plain Windows VM already has most of the right shape.
+> - **There is no Hyper-V enlightenments toggle in the UI**, and the base
+>   template does not carry them: inspected on v1.8.1,
+>   `windows-iso-image-base-template` has only `acpi`, no `hyperv` block, no
+>   Hyper-V clock timers, and a **virtio-blk** rootdisk. The **OS Type =
+>   Windows** step is what applies them — on **v1.9+**, Windows VMs default to
+>   virtio-scsi, Hyper-V enlightenments and cloud-init
+>   ([harvester/harvester#11124](https://github.com/harvester/harvester/issues/11124),
+>   closed, milestone v1.9.0). The Unattended & Sysprep form is v1.9+ anyway, so
+>   the UI path always lands on a version that applies them. They affect
+>   *performance*, not correctness — to force them elsewhere, use the `kubectl`
+>   or Terraform path (both set the block explicitly) or patch
+>   `spec.template.spec.domain.features.hyperv` after creating the VM.
 > - **Template names vary by cluster/version.**
->   `windows-iso-image-base-template` is the stock built-in; some clusters also
->   ship sized variants (`windows-iso-small` / `-medium` / `-large`). If none
->   exist, build a blank VM with a CD-ROM boot disk, a 36Gi virtio-scsi
+>   `windows-iso-image-base-template` is the stock built-in. Sized variants
+>   (`windows-iso-small` / `-medium` / `-large`, `windows-w11-iso`) are **not**
+>   shipped by Harvester — where they exist someone applied them locally. If no
+>   template fits, build a blank VM with a CD-ROM boot disk, a 36Gi virtio-scsi
 >   rootdisk, and a container-image volume `registry.suse.com/suse/vmdp/vmdp:2.5.5`
 >   — matching [`kubectl/winbuild-vm.yaml`](../kubectl/winbuild-vm.yaml).
 

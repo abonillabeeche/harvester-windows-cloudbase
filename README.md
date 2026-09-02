@@ -123,28 +123,41 @@ Steps:
    (`harvester-longhorn` is fine). If that class is block/LVM-based it may be
    ReadWriteOnce-only — set the access mode to **Single-Node (ReadWriteOnce)**;
    the build VM is the disk's only consumer, so RWO is always sufficient.
-4. Under **Advanced Options**, enable the **Hyper-V enlightenments** for a fast
-   install.
-5. **Advanced Options → set OS Type = `Windows`.** This is what makes the
-   **Windows Unattended & Sysprep Configuration** section appear. Then
+4. **Advanced Options → set OS Type = `Windows`.** This is what makes the
+   **Windows Unattended & Sysprep Configuration** section appear — and on v1.9+
+   it is also what applies the Hyper-V enlightenments (see below). Then
    **Create New →** paste `Autounattend-selfcontained-<version>.xml`.
-6. **Create.** The VM installs, sypreps, and powers off (~20 min). Console log
+5. **Create.** The VM installs, sypreps, and powers off (~20 min). Console log
    inside the VM: `C:\winbuild.log`.
-7. Capture the image: **Images → Create → from the build VM's rootdisk volume**
+6. Capture the image: **Images → Create → from the build VM's rootdisk volume**
    (or apply `kubectl/export-image.yaml`).
 
-> **On Harvester v1.9+, steps 3–4 are largely the defaults.**
-> [harvester/harvester#11124](https://github.com/harvester/harvester/issues/11124)
-> makes new Windows VMs default to the **virtio-scsi** disk bus, **Hyper-V
-> enlightenments**, and cloud-init — so setting **OS Type = Windows** already
-> gets you most of the build shape; you mainly confirm the disk bus/size and
-> paste the answer file.
+> **There is no "enable Hyper-V enlightenments" control in the UI**, and the
+> base template does not carry them — inspected on v1.8.1,
+> `windows-iso-image-base-template` sets only `acpi`, no `hyperv` block, no
+> Hyper-V clock timers, and a **virtio-blk** (not virtio-scsi) rootdisk.
 >
-> Template names vary by cluster and version: `windows-iso-image-base-template`
-> is the stock built-in, but some clusters also ship sized variants
-> (`windows-iso-small` / `-medium` / `-large`). If none exist, build a blank VM
-> with a CD-ROM boot disk, a 36Gi virtio-scsi rootdisk, and a container-image
-> volume `registry.suse.com/suse/vmdp/vmdp:2.5.5` — that's the whole shape.
+> You get them from the **OS Type = `Windows`** step instead:
+> [harvester/harvester#11124](https://github.com/harvester/harvester/issues/11124)
+> (closed, milestone **v1.9.0**) makes Windows VMs default to the
+> **virtio-scsi** disk bus, **Hyper-V enlightenments** and cloud-init. Since the
+> Unattended & Sysprep form is itself v1.9+, the UI path always lands on a
+> version that applies them — step 3 is then just confirming the size and class.
+>
+> They are a *performance* default, not a correctness gate: without them the
+> build still completes, just slower and with the I/O sawtooth that #11124
+> documents. If you need them on a cluster that doesn't apply them, use the
+> `kubectl` or Terraform path — both set the full enlightenment block
+> explicitly — or patch `spec.template.spec.domain.features.hyperv` onto the VM
+> after creating it.
+>
+> Template names vary by cluster and version. `windows-iso-image-base-template`
+> is the stock built-in; sized variants (`windows-iso-small` / `-medium` /
+> `-large`, `windows-w11-iso`) are **not** shipped by Harvester — where they
+> exist someone applied them locally, so don't count on them. With no template
+> at all, build a blank VM with a CD-ROM boot disk, a 36Gi virtio-scsi rootdisk,
+> and a container-image volume `registry.suse.com/suse/vmdp/vmdp:2.5.5` — that's
+> the whole shape.
 
 Full detail — the single-key Secret model, the 1024-char `FirstLogonCommands`
 limit, and why we base64-fold the script — is in
