@@ -58,25 +58,33 @@ mid-install.
 ## Using it in the UI
 
 1. Generate `kubectl/Autounattend-selfcontained.xml`.
-2. **Virtual Machines → Create → From Template →** `windows-iso-medium` (in the
-   `harvester-public` namespace). This template already provides the CD-ROM boot
-   disk, a virtio-scsi rootdisk, the VMDP driver CD
-   (`registry.suse.com/suse/vmdp/vmdp:2.5.5`) and the Hyper-V enlightenments — so
-   you don't add disks by hand. Set the CD-ROM's **Image** to your Windows ISO,
-   and on the **Volume** tab reduce the rootdisk to **32Gi** (access mode
-   **Single-Node/ReadWriteOnce** on `lvm-thin`).
+2. **Virtual Machines → Create → From Template →**
+   `windows-iso-image-base-template` (namespace `harvester-public`, the stock
+   built-in). It provides the CD-ROM boot disk, a rootdisk, and the VMDP driver
+   CD (`registry.suse.com/suse/vmdp/vmdp:2.5.5`). Set the CD-ROM's **Image** to
+   your Windows ISO; on the **Volume** tab set the rootdisk bus to
+   **virtio-scsi** and reduce it to **32Gi** (access mode
+   **Single-Node/ReadWriteOnce** on `lvm-thin`); under **Advanced Options**
+   enable the **Hyper-V enlightenments** for a fast install.
 3. **Advanced Options → set OS Type = `Windows`.** The **Windows Unattended &
    Sysprep Configuration** section only appears once the OS type is Windows.
    Then **Create New**, name the secret (e.g. `winbuild-unattend`), and paste
    the contents of `Autounattend-selfcontained.xml`.
 4. **Create.** The VM installs, sypreps, and powers off.
 
-> The **OS Type = Windows** step in (3) is easy to miss: without it the
-> Unattended & Sysprep section is hidden entirely. If you built the VM from a
-> non-template blank form, you can still add the same pieces manually — a CD-ROM
-> boot disk, a 32Gi virtio-scsi rootdisk, and a container-image volume
-> `registry.suse.com/suse/vmdp/vmdp:2.5.5` — matching
-> [`kubectl/winbuild-vm.yaml`](../kubectl/winbuild-vm.yaml).
+> **Version/name caveats.**
+> - The **OS Type = Windows** step in (3) is easy to miss: without it the
+>   Unattended & Sysprep section is hidden entirely.
+> - On **Harvester v1.9+**, the disk-bus / Hyper-V / cloud-init choices in (2)
+>   are largely defaults for Windows VMs
+>   ([harvester/harvester#11124](https://github.com/harvester/harvester/issues/11124)),
+>   so a plain Windows VM already has most of the right shape.
+> - **Template names vary by cluster/version.**
+>   `windows-iso-image-base-template` is the stock built-in; some clusters also
+>   ship sized variants (`windows-iso-small` / `-medium` / `-large`). If none
+>   exist, build a blank VM with a CD-ROM boot disk, a 32Gi virtio-scsi
+>   rootdisk, and a container-image volume `registry.suse.com/suse/vmdp/vmdp:2.5.5`
+>   — matching [`kubectl/winbuild-vm.yaml`](../kubectl/winbuild-vm.yaml).
 
 Or create the secret from the generated file directly:
 

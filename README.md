@@ -75,33 +75,42 @@ cd kubectl/
 ```
 
 Then create the VM in the UI. **Start from the built-in
-`windows-iso-medium` template** — it already lays out the exact build shape, so
-you don't add disks by hand:
+`windows-iso-image-base-template`** (namespace `harvester-public`) — it already
+provides:
 
 - a **CD-ROM as boot disk** (boot order 1),
-- a **virtio-scsi rootdisk** (boot order 2),
-- the **VMDP driver CD** (`registry.suse.com/suse/vmdp/vmdp:2.5.5`), and
-- the full **Hyper-V enlightenments** (fast install).
+- a **rootdisk** (boot order 2), and
+- the **VMDP driver CD** (`registry.suse.com/suse/vmdp/vmdp:2.5.5`).
 
 Steps:
 
-1. **Virtual Machines → Create → From Template →** `windows-iso-medium`.
+1. **Virtual Machines → Create → From Template →** `windows-iso-image-base-template`.
 2. On the CD-ROM (boot) disk, set the **Image** to your uploaded Windows ISO.
-3. On the **rootdisk (Volume tab)**, reduce the size from 64Gi to **32Gi** (it
-   grows on deploy). On `lvm-thin`, set the access mode to **Single-Node
-   (ReadWriteOnce)** — `lvm-thin` rejects ReadWriteMany.
-4. **Advanced Options → set OS Type = `Windows`.** This is what makes the
+3. On the **rootdisk (Volume tab)**, set the bus to **virtio-scsi**, and reduce
+   the size to **32Gi** (it grows on deploy). On `lvm-thin`, set the access mode
+   to **Single-Node (ReadWriteOnce)** — `lvm-thin` rejects ReadWriteMany.
+4. Under **Advanced Options**, enable the **Hyper-V enlightenments** for a fast
+   install.
+5. **Advanced Options → set OS Type = `Windows`.** This is what makes the
    **Windows Unattended & Sysprep Configuration** section appear. Then
    **Create New →** paste `Autounattend-selfcontained.xml`.
-5. **Create.** The VM installs, sypreps, and powers off (~20 min). Console log
+6. **Create.** The VM installs, sypreps, and powers off (~20 min). Console log
    inside the VM: `C:\winbuild.log`.
-6. Capture the image: **Images → Create → from the build VM's rootdisk volume**
+7. Capture the image: **Images → Create → from the build VM's rootdisk volume**
    (or apply `kubectl/export-image.yaml`).
 
-> No `windows-iso-medium` template? It ships in the `harvester-public`
-> namespace on current Harvester. If it's missing, build any VM with a CD-ROM
-> boot disk, a 32Gi virtio-scsi rootdisk, and a container-image volume
-> `registry.suse.com/suse/vmdp/vmdp:2.5.5` — that's all the template adds.
+> **On Harvester v1.9+, steps 3–4 are largely the defaults.**
+> [harvester/harvester#11124](https://github.com/harvester/harvester/issues/11124)
+> makes new Windows VMs default to the **virtio-scsi** disk bus, **Hyper-V
+> enlightenments**, and cloud-init — so setting **OS Type = Windows** already
+> gets you most of the build shape; you mainly confirm the disk bus/size and
+> paste the answer file.
+>
+> Template names vary by cluster and version: `windows-iso-image-base-template`
+> is the stock built-in, but some clusters also ship sized variants
+> (`windows-iso-small` / `-medium` / `-large`). If none exist, build a blank VM
+> with a CD-ROM boot disk, a 32Gi virtio-scsi rootdisk, and a container-image
+> volume `registry.suse.com/suse/vmdp/vmdp:2.5.5` — that's the whole shape.
 
 Full detail — the single-key Secret model, the 1024-char `FirstLogonCommands`
 limit, and why we base64-fold the script — is in
