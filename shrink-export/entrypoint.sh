@@ -41,7 +41,19 @@ IMAGE_NAMESPACE="${IMAGE_NAMESPACE:-$(cat /var/run/secrets/kubernetes.io/service
 upload_image() {
   local file="$1" size="$2"
   local ns="$IMAGE_NAMESPACE"
-  local api="https://harvester.harvester-system.svc:8443"
+  # Connect to the API by ClusterIP, not by DNS name. The Harvester API
+  # terminates TLS with a cert/vhost that rejects the in-cluster SNI
+  # "harvester.harvester-system.svc" — the server answers the handshake with
+  # TLS alert 112 (unrecognized_name), which OpenSSL 3 treats as fatal:
+  #   curl: (35) ... error:0A000458:SSL routines::tlsv1 unrecognized name
+  # An IP-literal host makes curl send NO SNI (RFC 6066 forbids IP SNI), so the
+  # handshake completes; -k skips cert verification and we still send the proper
+  # Host header so any name-based routing on the API side is satisfied.
+  local svc_host="harvester.harvester-system.svc"
+  local ip
+  ip="$(getent hosts "$svc_host" 2>/dev/null | awk '{print $1; exit}')"
+  [ -n "$ip" ] || die "could not resolve $svc_host (cluster DNS)"
+  local api="https://${ip}:8443"
 
   log "creating VirtualMachineImage ${ns}/${IMAGE_NAME} (backend=backingimage, sourceType=upload)"
   kubectl apply -f - <<EOF
@@ -64,6 +76,7 @@ EOF
   # size= query param + File-Size header are both required/expected by Harvester.
   # backend=backingimage => form field MUST be "chunk" (use "file" for cdi).
   curl -k -sS --fail-with-body --max-time 7200 -w '\nHTTP %{http_code}\n' -X POST \
+    -H "Host: ${svc_host}:8443" \
     -H "File-Size: ${size}" \
     -F "chunk=@${file};type=application/octet-stream" \
     "${api}/v1/harvesterhci.io.virtualmachineimages/${ns}/${IMAGE_NAME}?action=upload&size=${size}"
@@ -85,21 +98,35 @@ log "mode: $MODE"
 # ---------------------------------------------------------------------------
 if [ "$MODE" = "shrink" ]; then
   log "mapping partitions..."
-  kpartx -av "$SRC_DEV"
-  # kpartx names partitions /dev/mapper/<base>pN
-  base="$(basename "$SRC_DEV")"
-  # Pick the largest NTFS partition = the Windows (C:) volume.
-  win_part=""; win_size=0
-  for p in /dev/mapper/${base}p*; do
-    [ -e "$p" ] || continue
-    fstype="$(blkid -o value -s TYPE "$p" 2>/dev/null || true)"
-    sz="$(blockdev --getsize64 "$p" 2>/dev/null || echo 0)"
-    log "  partition $p type=${fstype:-?} size=$sz"
-    if [ "$fstype" = "ntfs" ] && [ "$sz" -gt "$win_size" ]; then win_part="$p"; win_size="$sz"; fi
+  # kpartx names the maps after the RESOLVED device (e.g. an LVM LV becomes
+  # /dev/mapper/<vg>-<lv>N), not after $SRC_DEV — so read the names it prints
+  # instead of guessing. The "add map <name> ..." lines are in partition order.
+  mapfile -t MAPS < <(kpartx -av "$SRC_DEV" | awk '/add map/{print "/dev/mapper/"$3}')
+  # Always release the partition maps on exit, even if a later step fails.
+  trap 'sync; kpartx -dv "$SRC_DEV" >/dev/null 2>&1 || true' EXIT
+  udevadm settle 2>/dev/null || sleep 2
+  [ "${#MAPS[@]}" -gt 0 ] || die "kpartx mapped no partitions on $SRC_DEV"
+  # parted is the source of truth for partition NUMBER + geometry; its numbered
+  # lines are in the same order as kpartx's maps.
+  mapfile -t PLINES < <(parted -sm "$SRC_DEV" unit B print | awk -F: '/^[0-9]+:/{print $1":"$2":"$4}')
+
+  # Pick the largest NTFS partition = the Windows (C:) volume. Detect the
+  # filesystem via blkid on the mapped device (reliable), map back to parted's
+  # partition number + start offset by list order.
+  win_part=""; win_size=0; partnum=""; start_bytes=0
+  for i in "${!PLINES[@]}"; do
+    IFS=: read -r num start _size <<<"${PLINES[$i]}"
+    dev="${MAPS[$i]:-}"
+    [ -n "$dev" ] && [ -e "$dev" ] || continue
+    fstype="$(blkid -o value -s TYPE "$dev" 2>/dev/null || true)"
+    sz="$(blockdev --getsize64 "$dev" 2>/dev/null || echo 0)"
+    log "  part#$num $dev type=${fstype:-?} size=$sz"
+    if [ "$fstype" = "ntfs" ] && [ "$sz" -gt "$win_size" ]; then
+      win_part="$dev"; win_size="$sz"; partnum="$num"; start_bytes="${start%B}"
+    fi
   done
   [ -n "$win_part" ] || die "no NTFS partition found to shrink"
-  partnum="${win_part##*p}"
-  log "windows partition: $win_part (partition #$partnum)"
+  log "windows partition: $win_part (partition #$partnum, start ${start_bytes}B)"
 
   log "checking NTFS consistency..."
   ntfsfix -d "$win_part" || die "ntfsfix failed — NTFS is dirty; capture after a clean sysprep /shutdown"
@@ -107,14 +134,17 @@ if [ "$MODE" = "shrink" ]; then
   # Minimum size ntfsresize will allow, in bytes. The relevant line is:
   #   "You might resize at 5179383808 bytes or 5180 MB (freeing 26629 MB)."
   min_bytes="$(ntfsresize --info --force "$win_part" \
-    | grep -oP 'You might resize at \K[0-9]+' | head -1)"
+    | grep -oP -m1 'You might resize at \K[0-9]+' || true)"
   [ -n "$min_bytes" ] || die "could not determine NTFS minimum size"
   target_bytes=$(( min_bytes + SLACK_MIB * 1024 * 1024 ))
   # align target up to 1 MiB
   target_bytes=$(( (target_bytes + 1048575) / 1048576 * 1048576 ))
   log "NTFS min=${min_bytes}B, resizing filesystem to ${target_bytes}B (+${SLACK_MIB}MiB slack)"
 
-  yes | ntfsresize --force --size "$target_bytes" "$win_part"
+  # NOTE: never pipe `yes` into this under `set -o pipefail` — `yes` dies with
+  # SIGPIPE (141) when ntfsresize exits, which trips pipefail and aborts the
+  # script right after a *successful* resize. `echo y` writes once and exits 0.
+  echo y | ntfsresize --force --size "$target_bytes" "$win_part"
 
   # Release the partition mapping before editing the on-disk table.
   sync
@@ -123,12 +153,15 @@ if [ "$MODE" = "shrink" ]; then
 
   log "shrinking the partition table entry #$partnum..."
   # Work directly on $SRC_DEV. parted resizepart needs an END in MiB.
-  start_bytes="$(parted -sm "$SRC_DEV" unit B print | awk -F: -v n="$partnum" '$1==n{gsub(/B/,"",$2); print $2}')"
+  # start_bytes was captured from parted above.
   end_bytes=$(( start_bytes + target_bytes ))
   # round the partition end up to 1 MiB
   end_mib=$(( (end_bytes + 1048575) / 1048576 ))
   log "  partition start=${start_bytes}B -> new end=${end_mib}MiB"
-  parted -s "$SRC_DEV" resizepart "$partnum" "${end_mib}MiB"
+  # parted's script mode (-s) answers "No" to the "shrinking can cause data
+  # loss" prompt and aborts. ---pretend-input-tty makes parted prompt so we can
+  # feed "Yes" on stdin. (printf is finite, so no SIGPIPE/pipefail trap.)
+  printf 'Yes\nYes\n' | parted ---pretend-input-tty "$SRC_DEV" resizepart "$partnum" "${end_mib}MiB"
 
   # If GPT, move the backup header next to the (now earlier) end of data.
   if parted -sm "$SRC_DEV" print | head -2 | grep -q ':gpt:'; then
