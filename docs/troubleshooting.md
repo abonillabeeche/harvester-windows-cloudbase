@@ -7,11 +7,11 @@ first-boot log inside the VM is `C:\winbuild.log`; Windows Setup logs are under
 ## "No Bootable Device" — the ISO clone is empty
 
 **Cause:** the `winbuild-iso` PVC was cloned from the install-ISO image using a
-*generic* StorageClass (`harvester-longhorn` / `lvm-thin`). Harvester only
-populates an `imageId`-annotated clone when the PVC uses the **image's own
-dedicated StorageClass**, which carries the backingImage reference. With a
-generic class you get a correctly-sized but all-zero volume — no `CD001` / El
-Torito boot record — so nothing boots.
+*generic* StorageClass (e.g. `harvester-longhorn` or any class you'd use for a
+normal data disk). Harvester only populates an `imageId`-annotated clone when
+the PVC uses the **image's own dedicated StorageClass**, which carries the
+backingImage reference. With a generic class you get a correctly-sized but
+all-zero volume — no `CD001` / El Torito boot record — so nothing boots.
 
 **Fix:** set the ISO PVC's `storageClassName` to the image's dedicated class:
 
@@ -28,12 +28,12 @@ Verify the clone is real:
 
 ## `unsupported access mode MULTI_NODE_MULTI_WRITER`
 
-**Cause:** the rootdisk PVC requested `ReadWriteMany` on `lvm-thin`, which is
-RWO-only.
+**Cause:** the rootdisk PVC requested `ReadWriteMany` on a StorageClass that
+only supports ReadWriteOnce (block-mode / LVM-based CSI classes typically are
+RWO-only; Longhorn supports RWX).
 
-**Fix:** set the rootdisk `accessModes: [ReadWriteOnce]`. (Fine on a
-single-node cluster; the build VM is the only consumer.) The ISO PVC on a
-Longhorn backingimage class *can* be RWX.
+**Fix:** set the rootdisk `accessModes: [ReadWriteOnce]`. RWO is always
+sufficient here — the build VM is the disk's only consumer.
 
 ## oobeSystem: "the answer file is invalid"
 

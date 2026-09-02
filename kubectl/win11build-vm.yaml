@@ -31,7 +31,7 @@ metadata:
           "accessModes": ["ReadWriteOnce"],
           "resources": {"requests": {"storage": "32Gi"}},
           "volumeMode": "Block",
-          "storageClassName": "lvm-thin"
+          "storageClassName": "REPLACE_STORAGECLASS"
         }
       }]
 # See winbuild-vm.yaml for the meaning of the REPLACE_* values (imageId short

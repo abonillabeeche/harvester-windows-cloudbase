@@ -27,9 +27,9 @@ locals {
 
   # Harvester's admission webhook forbids directly referencing an image
   # source PVC in a VM ("golden image ... can't be used as a volume"),
-  # so we go through the standard imageId-annotation clone path. On
-  # lvm-thin the clone is intra-driver COW (fast); on longhorn it's a
-  # byte-stream copy (~5 min for a 5 GB Windows ISO).
+  # so we go through the standard imageId-annotation clone path. On a
+  # CSI class that supports intra-driver COW the clone is near-instant;
+  # on Longhorn it's a byte-stream copy (~5 min for a 5 GB Windows ISO).
   volume_claim_templates = jsonencode([
     {
       metadata = {

@@ -31,7 +31,7 @@ metadata:
           "accessModes": ["ReadWriteOnce"],
           "resources": {"requests": {"storage": "32Gi"}},
           "volumeMode": "Block",
-          "storageClassName": "lvm-thin"
+          "storageClassName": "REPLACE_STORAGECLASS"
         }
       }]
 # ----------------------------------------------------------------------------
@@ -46,15 +46,19 @@ metadata:
 #                                or you can read it from the image object:
 #                                  kubectl get vmimage <name> -o \
 #                                    jsonpath='{.status.storageClassName}'
-#                                Using a GENERIC class (harvester-longhorn /
-#                                lvm-thin) makes the imageId clone silently
-#                                produce an EMPTY volume -> "No Bootable Device".
+#                                Using a GENERIC class (e.g. harvester-longhorn
+#                                or any normal data-disk class) makes the imageId
+#                                clone silently produce an EMPTY volume ->
+#                                "No Bootable Device".
 #
-# winbuild-rootdisk  -- the golden disk. 32Gi is deliberate: the smaller the
-#   build disk, the smaller the exported image. Cloudbase-Init's
-#   ExtendVolumesPlugin grows C: to fill the target disk on first boot, so VMs
-#   cloned from the image can be any size >= 32Gi. lvm-thin is RWO-only (a
-#   ReadWriteMany request is rejected with MULTI_NODE_MULTI_WRITER).
+# winbuild-rootdisk  -- the golden disk. Set storageClassName to a StorageClass
+#   you have tested (harvester-longhorn ships on every cluster). 32Gi is
+#   deliberate: the smaller the build disk, the smaller the exported image.
+#   Cloudbase-Init's ExtendVolumesPlugin grows C: to fill the target disk on
+#   first boot, so VMs cloned from the image can be any size >= 32Gi.
+#   Keep accessModes: [ReadWriteOnce] — block-mode/LVM-based CSI classes are
+#   typically RWO-only (a ReadWriteMany request is rejected with
+#   MULTI_NODE_MULTI_WRITER); RWO is always sufficient here.
 # ----------------------------------------------------------------------------
 spec:
   runStrategy: RerunOnFailure

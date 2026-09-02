@@ -63,9 +63,10 @@ mid-install.
    built-in). It provides the CD-ROM boot disk, a rootdisk, and the VMDP driver
    CD (`registry.suse.com/suse/vmdp/vmdp:2.5.5`). Set the CD-ROM's **Image** to
    your Windows ISO; on the **Volume** tab set the rootdisk bus to
-   **virtio-scsi** and reduce it to **32Gi** (access mode
-   **Single-Node/ReadWriteOnce** on `lvm-thin`); under **Advanced Options**
-   enable the **Hyper-V enlightenments** for a fast install.
+   **virtio-scsi**, reduce it to **32Gi**, and pick your tested StorageClass
+   (`harvester-longhorn` is fine; use access mode **Single-Node/ReadWriteOnce**
+   if the class is RWO-only); under **Advanced Options** enable the **Hyper-V
+   enlightenments** for a fast install.
 3. **Advanced Options → set OS Type = `Windows`.** The **Windows Unattended &
    Sysprep Configuration** section only appears once the OS type is Windows.
    Then **Create New**, name the secret (e.g. `winbuild-unattend`), and paste

@@ -35,11 +35,40 @@ The image ships with:
 2. A Windows Server 2022 (or Windows 11) ISO uploaded as a Harvester Image
    (**Images → Create → Upload**).
 3. `kubectl` with your Harvester kubeconfig (**Support → Download KubeConfig**).
-4. An `lvm-thin` StorageClass (or edit the manifests for `harvester-longhorn`).
+4. A StorageClass you have tested for VM volumes. **`harvester-longhorn` ships
+   on every Harvester cluster** and is a safe default; substitute any class
+   you've validated.
 5. Terraform ≥ 1.5 for the Terraform path.
 
 The VMDP driver ISO ships as a KubeVirt container disk at
 `registry.suse.com/suse/vmdp/vmdp:2.5.5` — the build attaches it automatically.
+
+---
+
+## What you provide
+
+Every path needs the same handful of inputs from your cluster. Gather them once;
+the table shows where each one goes. To find your ISO image's names and its
+dedicated StorageClass:
+
+```bash
+export KUBECONFIG=/path/to/your/harvester.yaml     # your downloaded kubeconfig
+kubectl get virtualmachineimage -A \
+  -o custom-columns='NS:.metadata.namespace,NAME:.metadata.name,DISPLAY:.spec.displayName,SC:.status.storageClassName'
+# e.g.  default   image-4fxrm   server_eval_x64fre_en-us.iso   longhorn-image-4fxrm
+```
+
+| Input | Where to get it | UI path | kubectl path | Terraform path |
+|---|---|---|---|---|
+| **Kubeconfig** (path/filename) | Harvester → **Support → Download KubeConfig** | you're already in the UI | `export KUBECONFIG=/path/to/harvester.yaml` (or `kubectl --kubeconfig`) | `-var 'kubeconfig=/path/to/harvester.yaml'` |
+| **Windows ISO image** (already uploaded) | the `NS`/`NAME` columns above — use the short `metadata.name` (e.g. `image-4fxrm`), **not** the display name | select it in the CD-ROM **Image** dropdown | `REPLACE_NAMESPACE/REPLACE_IMAGE_NAME` in `kubectl/winbuild-vm.yaml` | `-var 'windows_iso_image_ref=default/image-4fxrm'` |
+| **ISO image's own StorageClass** | the `SC` column above (e.g. `longhorn-image-4fxrm`) | handled automatically | `REPLACE_IMAGE_STORAGECLASS` in `kubectl/winbuild-vm.yaml` | `-var 'iso_storage_class=longhorn-image-4fxrm'` |
+| **Rootdisk StorageClass** (for the golden disk) | any class you've tested; `harvester-longhorn` works everywhere | rootdisk **Volume** tab | `REPLACE_STORAGECLASS` in `kubectl/winbuild-vm.yaml` | `-var 'storage_class=harvester-longhorn'` |
+
+> The **ISO image's own StorageClass** matters: Harvester gives every uploaded
+> image a dedicated class, and the install-ISO clone only populates when the CD
+> PVC uses *that* class. Using a generic class yields an empty CD →
+> "No Bootable Device". See [docs/troubleshooting.md](docs/troubleshooting.md).
 
 ---
 
@@ -86,9 +115,11 @@ Steps:
 
 1. **Virtual Machines → Create → From Template →** `windows-iso-image-base-template`.
 2. On the CD-ROM (boot) disk, set the **Image** to your uploaded Windows ISO.
-3. On the **rootdisk (Volume tab)**, set the bus to **virtio-scsi**, and reduce
-   the size to **32Gi** (it grows on deploy). On `lvm-thin`, set the access mode
-   to **Single-Node (ReadWriteOnce)** — `lvm-thin` rejects ReadWriteMany.
+3. On the **rootdisk (Volume tab)**, set the bus to **virtio-scsi**, reduce the
+   size to **32Gi** (it grows on deploy), and pick your tested StorageClass
+   (`harvester-longhorn` is fine). If that class is block/LVM-based it may be
+   ReadWriteOnce-only — set the access mode to **Single-Node (ReadWriteOnce)**;
+   the build VM is the disk's only consumer, so RWO is always sufficient.
 4. Under **Advanced Options**, enable the **Hyper-V enlightenments** for a fast
    install.
 5. **Advanced Options → set OS Type = `Windows`.** This is what makes the
@@ -218,7 +249,7 @@ Key variables (full list in [`terraform/variables.tf`](terraform/variables.tf)):
 | `iso_storage_class` | *required* | The ISO image's **own** StorageClass (`longhorn-<image-name>`) |
 | `windows_edition` | `Windows Server 2022 SERVERSTANDARD` | Edition inside `install.wim` |
 | `output_image_name` | `win2022-cloudbase` | Name of the golden image |
-| `storage_class` | `lvm-thin` | StorageClass for the rootdisk + exported image |
+| `storage_class` | `harvester-longhorn` | StorageClass for the rootdisk + exported image (use any class you've tested) |
 | `rootdisk_gib` | `32` | Golden image disk size (kept small; grows on deploy) |
 | `install_openssh` | `false` | Bake OpenSSH into the image (adds ~6 min) |
 

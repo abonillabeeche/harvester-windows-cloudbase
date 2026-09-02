@@ -34,9 +34,9 @@ variable "output_image_name" {
 }
 
 variable "storage_class" {
-  description = "StorageClass for the rootdisk build PVC and the exported image PVC. Use 'lvm-thin' for intra-driver COW clone (fastest)."
+  description = "StorageClass for the rootdisk build PVC and the exported image PVC. Use any class you have tested; 'harvester-longhorn' ships on every Harvester cluster."
   type        = string
-  default     = "lvm-thin"
+  default     = "harvester-longhorn"
 }
 
 variable "iso_storage_class" {
