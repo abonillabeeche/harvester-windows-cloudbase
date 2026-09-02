@@ -22,6 +22,14 @@ MODE="${MODE:-compact}"
 SLACK_MIB="${SLACK_MIB:-1024}"
 WORK="${WORK:-/work}"
 IMAGE_DISPLAY="${IMAGE_DISPLAY:-${IMAGE_NAME}}"
+# Where the resulting image is STORED:
+#   BACKEND=backingimage  -> Longhorn backing image (Harvester's default).
+#   BACKEND=cdi           -> a CDI-imported PVC; set TARGET_STORAGECLASS to land
+#                            it on any tested CSI StorageClass instead of
+#                            Longhorn. Leave TARGET_STORAGECLASS empty to use
+#                            the cluster default StorageClass.
+BACKEND="${BACKEND:-backingimage}"
+TARGET_STORAGECLASS="${TARGET_STORAGECLASS:-}"
 OUT="${WORK}/disk.qcow2"
 
 log() { echo "[$(date +%H:%M:%S)] $*"; }
@@ -55,7 +63,18 @@ upload_image() {
   [ -n "$ip" ] || die "could not resolve $svc_host (cluster DNS)"
   local api="https://${ip}:8443"
 
-  log "creating VirtualMachineImage ${ns}/${IMAGE_NAME} (backend=backingimage, sourceType=upload)"
+  # backend selects storage AND the multipart field name:
+  #   backingimage -> form field "chunk" (Longhorn); ignores targetStorageClassName
+  #   cdi          -> form field "file"; targetStorageClassName picks the CSI class
+  local form_field target_line=""
+  case "$BACKEND" in
+    backingimage) form_field="chunk" ;;
+    cdi)          form_field="file"
+                  [ -n "$TARGET_STORAGECLASS" ] && target_line="  targetStorageClassName: ${TARGET_STORAGECLASS}" ;;
+    *) die "unknown BACKEND '$BACKEND' (want backingimage|cdi)" ;;
+  esac
+
+  log "creating VirtualMachineImage ${ns}/${IMAGE_NAME} (backend=${BACKEND}, sourceType=upload${TARGET_STORAGECLASS:+, targetSC=$TARGET_STORAGECLASS})"
   kubectl apply -f - <<EOF
 apiVersion: harvesterhci.io/v1beta1
 kind: VirtualMachineImage
@@ -63,23 +82,49 @@ metadata:
   name: ${IMAGE_NAME}
   namespace: ${ns}
 spec:
-  backend: backingimage
+  backend: ${BACKEND}
   displayName: "${IMAGE_DISPLAY}"
   sourceType: upload
+${target_line}
 EOF
 
   log "waiting for image to be Initialized (ready to receive the upload)..."
   kubectl -n "$ns" wait virtualmachineimage/"$IMAGE_NAME" \
     --for=condition=Initialized=True --timeout=180s
 
-  log "uploading ${size} bytes ..."
-  # size= query param + File-Size header are both required/expected by Harvester.
-  # backend=backingimage => form field MUST be "chunk" (use "file" for cdi).
-  curl -k -sS --fail-with-body --max-time 7200 -w '\nHTTP %{http_code}\n' -X POST \
-    -H "Host: ${svc_host}:8443" \
-    -H "File-Size: ${size}" \
-    -F "chunk=@${file};type=application/octet-stream" \
-    "${api}/v1/harvesterhci.io.virtualmachineimages/${ns}/${IMAGE_NAME}?action=upload&size=${size}"
+  # The ?action=upload call itself is what provisions CDI's DataVolume + upload
+  # pod (backend=cdi); the handler then waits for the upload proxy to be ready
+  # before streaming. If provisioning is slow it can 500 with "context deadline
+  # exceeded" on the FIRST attempt (the DataVolume/upload pod don't exist until
+  # you call it, so you can't pre-wait). A retry once the upload pod is
+  # UploadReady streams the bytes and returns 200. backingimage uploads in one
+  # shot, so 1 attempt is enough there.
+  # NOTE: CDI scratch space uses CDIConfig.scratchSpaceStorageClass (falls back
+  # to the cluster-default class when unset) — keep it on a HEALTHY class, or the
+  # scratch PVC can wedge here.
+  local attempts=1
+  [ "$BACKEND" = "cdi" ] && attempts=12
+  local http=000
+  for a in $(seq 1 "$attempts"); do
+    log "uploading ${size} bytes (form field '${form_field}', attempt ${a}/${attempts}) ..."
+    # size= query param + File-Size header are both required/expected by Harvester.
+    http="$(curl -k -sS -o /tmp/upload.out -w '%{http_code}' --max-time 7200 -X POST \
+      -H "Host: ${svc_host}:8443" \
+      -H "File-Size: ${size}" \
+      -F "${form_field}=@${file};type=application/octet-stream" \
+      "${api}/v1/harvesterhci.io.virtualmachineimages/${ns}/${IMAGE_NAME}?action=upload&size=${size}" \
+      || echo 000)"
+    sed 's/^/    /' /tmp/upload.out 2>/dev/null || true; echo
+    log "  HTTP ${http}"
+    [ "$http" = "200" ] && break
+    # If the import already reached Imported=True, we're done regardless of code.
+    imp="$(kubectl -n "$ns" get virtualmachineimage "$IMAGE_NAME" \
+      -o jsonpath='{.status.conditions[?(@.type=="Imported")].status}' 2>/dev/null || true)"
+    [ "$imp" = "True" ] && { http=200; break; }
+    log "  not ready yet; retrying in 15s"
+    sleep 15
+  done
+  [ "$http" = "200" ] || die "upload failed after ${attempts} attempt(s) (last HTTP ${http})"
 
   log "waiting for import to complete..."
   kubectl -n "$ns" wait virtualmachineimage/"$IMAGE_NAME" \

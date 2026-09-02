@@ -65,6 +65,16 @@ spec:
               value: REPLACE_IMAGE_NAME          # e.g. win2022-cloudbase-min
             - name: IMAGE_DISPLAY
               value: REPLACE_IMAGE_DISPLAY        # e.g. "Windows 2022 (minimized)"
+            # Where the image is STORED:
+            #   backingimage = Longhorn backing image (Harvester default).
+            #   cdi          = a CDI-imported PVC; set TARGET_STORAGECLASS to land
+            #                  it on any tested CSI class instead of Longhorn.
+            - name: BACKEND
+              value: "backingimage"               # backingimage | cdi
+            # Only used when BACKEND=cdi. Leave empty for the cluster-default
+            # StorageClass. Point it at a tested StorageClass (or use Longhorn).
+            - name: TARGET_STORAGECLASS
+              value: ""                           # e.g. REPLACE_STORAGECLASS
             # compact = drop zeroed free space (safe, keeps virtual size).
             # shrink  = also ntfsresize C: to minimum + truncate (smaller virtual
             #           size; edits the partition table — see docs).

@@ -53,6 +53,43 @@ parameterized Job — give it a namespace + source PVC + target image name — t
 
 See [../shrink-export/README.md](../shrink-export/README.md) for usage.
 
+### Choosing the storage backend (`BACKEND` / `TARGET_STORAGECLASS`)
+
+A Harvester `VirtualMachineImage` can be stored two ways, and the Job picks
+between them with the `BACKEND` env var:
+
+| `BACKEND` | Stored as | Storage class | Upload form field |
+|---|---|---|---|
+| `backingimage` (default) | a Longhorn *backing image* | always Longhorn | `chunk` |
+| `cdi` | a CDI-imported PVC | **`targetStorageClassName`** (any tested CSI class, or the cluster default) | `file` |
+
+Use `backingimage` unless you specifically need the image to live on a
+StorageClass other than Longhorn (for example, Longhorn is out of space, or you
+standardize on a different tested StorageClass). For `cdi`, set
+`TARGET_STORAGECLASS` to a **tested** StorageClass; leave it empty to use the
+cluster-default class. The Job flips the multipart form field automatically
+(`chunk` vs `file`) to match the backend — you don't set that yourself.
+
+> **CDI scratch space.** CDI stages the incoming upload in a *scratch* PVC whose
+> class is `CDIConfig.spec.scratchSpaceStorageClass`. When that's unset it falls
+> back to the **cluster-default StorageClass** — so even a `cdi` upload targeting
+> a healthy class can wedge if the *default* class is unhealthy/full. Point
+> scratch at a healthy class if needed. Note that `CDIConfig` is reconciled from
+> the `CDI` CR, so patch the CR, not `CDIConfig` directly:
+> ```
+> kubectl patch cdi cdi --type=merge \
+>   -p '{"spec":{"config":{"scratchSpaceStorageClass":"<tested-class>"}}}'
+> ```
+
+> **CDI uploads are two-phase.** For `backingimage` the `?action=upload` POST
+> streams the file in one shot. For `cdi`, that same POST is what *provisions*
+> the DataVolume + upload pod, and the handler then waits for the upload proxy to
+> be ready before it accepts bytes. If provisioning is slow the first POST can
+> return **HTTP 500 "context deadline exceeded"** — the DataVolume doesn't exist
+> until you POST, so you can't pre-wait for it. The Job simply **retries the
+> POST** (up to 12× for `cdi`, 15s apart) until it returns 200 or the image
+> reports `Imported=True`. A single POST is enough for `backingimage`.
+
 > **`compact` vs `shrink`.** `compact` is safe and only affects physical size —
 > use it as the default. `shrink` edits the partition table and truncates the
 > virtual disk; it needs a clean NTFS (captured after a graceful sysprep
@@ -76,6 +113,10 @@ The whole Job (apt install of tooling → `ntfsresize` → partition-table
 `resizepart` → `qemu-img convert` → `qemu-img resize --shrink` → upload →
 `Imported=True`) ran in ~2.5 min for this image. The result is a 12 Gi image
 that Cloudbase-Init's `ExtendVolumesPlugin` grows to any target disk on deploy.
+
+The same image was also verified with `BACKEND=cdi` +
+`TARGET_STORAGECLASS=<a tested StorageClass>`: identical physical/virtual sizes,
+`Imported=True`, landed on the target class instead of Longhorn.
 
 ## Why the Job talks to `harvester.harvester-system.svc:8443`
 
