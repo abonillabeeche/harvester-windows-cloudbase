@@ -28,12 +28,15 @@ Log '=== winbuild bootstrap starting ==='
 #   Log 'OpenSSH installed'
 # } catch { Log "OpenSSH setup warning: $_" }
 
-# 1. VMDP CD-ROM is hardcoded to E: — that's where the KubeVirt virtio-container-disk
-# is attached (SATA bus, third disk after Windows ISO on D: and rootdisk on C:).
-# NOTE: if the disk order changes (extra disks attached), update this letter.
-$vmdp = 'E:'
-if (-not (Test-Path "$vmdp\VMDP-WIN-2.5.5.exe")) {
-  Log "ERROR: E:\VMDP-WIN-2.5.5.exe not found - VMDP CD-ROM not on expected drive"
+# 1. Locate the VMDP CD-ROM by content, not a fixed letter — the drive letter
+# shifts with disk order/bus (e.g. a virtio-scsi rootdisk changes the CD
+# lettering). Scan every drive for the VMDP self-extractor.
+$vmdp = $null
+foreach ($d in (Get-PSDrive -PSProvider FileSystem).Root) {
+  if (Test-Path (Join-Path $d 'VMDP-WIN-2.5.5.exe')) { $vmdp = $d.TrimEnd('\'); break }
+}
+if (-not $vmdp) {
+  Log 'ERROR: VMDP-WIN-2.5.5.exe not found on any drive - VMDP CD-ROM not attached'
   Get-Volume | Where-Object DriveType -eq 'CD-ROM' | Format-Table DriveLetter,FileSystemLabel | Out-String | ForEach-Object { Log $_ }
   exit 1
 }
@@ -118,6 +121,53 @@ stop_service_on_exit=false
 Set-Content -Path (Join-Path $cbiConf 'cloudbase-init.conf') -Value $mainConf -Encoding ASCII
 Set-Content -Path (Join-Path $cbiConf 'cloudbase-init-unattend.conf') -Value $unattendConf -Encoding ASCII
 Log 'CBI conf files written'
+
+# 5b. Remove AppX packages that block sysprep /generalize.
+# setuperr.log fails with 0x80073cf2 in AppxSysprep.dll when a package is
+# "installed for a user, but not provisioned for all users" (Microsoft Edge is
+# the usual offender). Strip per-user packages, then their provisioned copies,
+# then hard-uninstall Chromium Edge via its own setup.exe as a fallback.
+Log 'Removing AppX packages that block sysprep generalize...'
+Get-AppxPackage -AllUsers -EA SilentlyContinue | ForEach-Object {
+  try { Remove-AppxPackage -AllUsers -Package $_.PackageFullName -EA Stop; Log "removed pkg $($_.Name)" }
+  catch { Log "skip pkg $($_.Name)" }
+}
+Get-AppxProvisionedPackage -Online -EA SilentlyContinue | ForEach-Object {
+  try { Remove-AppxProvisionedPackage -Online -PackageName $_.PackageName -EA Stop | Out-Null; Log "deprovisioned $($_.DisplayName)" }
+  catch { Log "skip prov $($_.DisplayName)" }
+}
+$edgeSetup = Get-ChildItem 'C:\Program Files (x86)\Microsoft\Edge\Application\*\Installer\setup.exe' -EA SilentlyContinue | Select-Object -Last 1
+if ($edgeSetup) {
+  Log "Uninstalling Chromium Edge via $($edgeSetup.FullName)"
+  try { Start-Process -FilePath $edgeSetup.FullName -ArgumentList '--uninstall','--system-level','--force-uninstall' -Wait -EA Stop } catch { Log "Edge uninstall warn: $_" }
+}
+Log 'AppX cleanup done'
+
+# 5c. Minimize the golden image. Two things shrink the exported image:
+#   (1) delete build scratch so it is not baked into the image, and
+#   (2) zero the remaining NTFS free space so `qemu-img convert` (which drops
+#       runs of zeros) produces a compact qcow2. Windows ships no sdelete, so
+#       fill free space with a zero file, then delete it.
+# NOTE: the zero-fill briefly allocates the whole rootdisk in the thin pool;
+# on a small (e.g. 32 GiB) build disk this is fine. Skip it (comment out the
+# zero-fill block) if your build volume shares a nearly-full thin pool.
+Log 'Cleaning up build scratch...'
+Remove-Item C:\Windows\Temp\bootstrap.b64, C:\bootstrap.ps1, `
+  C:\Windows\Temp\vmdp-extracted, C:\Windows\Temp\VMDP-WIN-2.5.5.exe, `
+  C:\Windows\Temp\CloudbaseInitSetup_x64.msi -Recurse -Force -EA SilentlyContinue
+
+Log 'Zeroing free space for a compact export...'
+$zero = 'C:\zero.fill'
+try {
+  $bufSize = 64MB
+  $buf = New-Object byte[] $bufSize
+  $fs = [System.IO.File]::Create($zero)
+  try { while ($true) { $fs.Write($buf, 0, $bufSize) } }  # runs until ENOSPC
+  catch { }
+  finally { $fs.Close() }
+} catch { Log "zero-fill note: $_" }
+Remove-Item $zero -Force -EA SilentlyContinue
+Log 'Free space zeroed'
 
 # 6. Run sysprep /generalize /shutdown using CBI-provided Unattend.xml.
 # Copy the file to a spaces-free path first — Start-Process -ArgumentList array

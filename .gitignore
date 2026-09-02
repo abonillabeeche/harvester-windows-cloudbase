@@ -3,3 +3,6 @@
 terraform.tfstate
 terraform.tfstate.backup
 *.tfplan
+
+# build artifact produced by kubectl/build-answerfile.py
+kubectl/Autounattend-selfcontained.xml

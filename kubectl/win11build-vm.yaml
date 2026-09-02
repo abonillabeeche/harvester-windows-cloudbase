@@ -13,14 +13,14 @@ metadata:
         "metadata": {
           "name": "win11build-iso",
           "annotations": {
-            "harvesterhci.io/imageId": "default/image-wpf76"
+            "harvesterhci.io/imageId": "REPLACE_NAMESPACE/REPLACE_IMAGE_NAME"
           }
         },
         "spec": {
           "accessModes": ["ReadWriteMany"],
           "resources": {"requests": {"storage": "20Gi"}},
           "volumeMode": "Block",
-          "storageClassName": "lvm-thin"
+          "storageClassName": "REPLACE_IMAGE_STORAGECLASS"
         }
       },
       {
@@ -28,12 +28,15 @@ metadata:
           "name": "win11build-rootdisk"
         },
         "spec": {
-          "accessModes": ["ReadWriteMany"],
-          "resources": {"requests": {"storage": "64Gi"}},
+          "accessModes": ["ReadWriteOnce"],
+          "resources": {"requests": {"storage": "32Gi"}},
           "volumeMode": "Block",
           "storageClassName": "lvm-thin"
         }
       }]
+# See winbuild-vm.yaml for the meaning of the REPLACE_* values (imageId short
+# name + the ISO image's OWN dedicated StorageClass). Windows 11 additionally
+# needs EFI + Secure Boot + vTPM, all set below.
 spec:
   runStrategy: RerunOnFailure
   template:
@@ -75,7 +78,9 @@ spec:
           - cdrom: {bus: sata}
             name: windows-iso
             bootOrder: 1
-          - disk: {bus: sata}
+          # virtio-scsi rootdisk (fast) — needs the WinPE DriverPaths block in
+          # the Windows 11 answer file. Switch to `sata` if you remove it.
+          - disk: {bus: scsi}
             name: rootdisk
             bootOrder: 2
           - cdrom: {bus: sata}

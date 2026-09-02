@@ -37,16 +37,20 @@ locals {
         annotations = { "harvesterhci.io/imageId" = var.windows_iso_image_ref }
       }
       spec = {
-        accessModes      = ["ReadWriteMany"]
-        resources        = { requests = { storage = "20Gi" } }
-        volumeMode       = "Block"
-        storageClassName = var.storage_class
+        accessModes = ["ReadWriteMany"]
+        resources   = { requests = { storage = "20Gi" } }
+        volumeMode  = "Block"
+        # The ISO clone MUST use the source image's OWN dedicated StorageClass
+        # (Harvester names it `longhorn-<image-name>`), otherwise the clone is
+        # an empty volume and the VM shows "No Bootable Device". See
+        # var.iso_storage_class.
+        storageClassName = var.iso_storage_class
       }
     },
     {
       metadata = { name = "${local.build_vm_name}-rootdisk" }
       spec = {
-        accessModes      = ["ReadWriteMany"]
+        accessModes      = ["ReadWriteOnce"]
         resources        = { requests = { storage = "${var.rootdisk_gib}Gi" } }
         volumeMode       = "Block"
         storageClassName = var.storage_class
@@ -112,7 +116,9 @@ locals {
                   {
                     disks = [
                       { cdrom = { bus = "sata" }, name = "windows-iso", bootOrder = 1 },
-                      { disk  = { bus = "sata" }, name = "rootdisk",    bootOrder = 2 },
+                      # virtio-scsi rootdisk (fast) — the answer file's WinPE
+                      # DriverPaths block loads the driver so Setup sees it.
+                      { disk = { bus = "scsi" }, name = "rootdisk", bootOrder = 2 },
                       { cdrom = { bus = "sata" }, name = "virtio-container-disk" },
                       { cdrom = { bus = "sata" }, name = "sysprep" },
                     ]
@@ -125,10 +131,10 @@ locals {
             )
             networks = [{ name = "default", pod = {} }]
             volumes = [
-              { name = "windows-iso",           persistentVolumeClaim = { claimName = "${local.build_vm_name}-iso" } },
-              { name = "rootdisk",              persistentVolumeClaim = { claimName = "${local.build_vm_name}-rootdisk" } },
+              { name = "windows-iso", persistentVolumeClaim = { claimName = "${local.build_vm_name}-iso" } },
+              { name = "rootdisk", persistentVolumeClaim = { claimName = "${local.build_vm_name}-rootdisk" } },
               { name = "virtio-container-disk", containerDisk = { image = var.vmdp_container_image, imagePullPolicy = "IfNotPresent" } },
-              { name = "sysprep",               sysprep = { secret = { name = kubernetes_secret.unattend.metadata[0].name } } },
+              { name = "sysprep", sysprep = { secret = { name = kubernetes_secret.unattend.metadata[0].name } } },
             ]
           },
         )

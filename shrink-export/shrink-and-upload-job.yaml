@@ -1,0 +1,106 @@
+# Compact (and optionally shrink) a Windows disk PVC and register the result as
+# a Harvester VirtualMachineImage via the upload API.
+#
+# Parameters you set: the NAMESPACE this Job runs in (must be where the source
+# PVC lives — a pod can only mount PVCs from its own namespace), the source PVC
+# name, and the target image name. Everything else is env on the Job below.
+#
+# Before applying, create the script ConfigMap from entrypoint.sh:
+#   kubectl -n <namespace> create configmap disk-shrink-script \
+#     --from-file=entrypoint.sh=entrypoint.sh
+#
+# Preconditions:
+#   * the source VM is STOPPED (its RWO PVC must be free to attach)
+#   * the image was captured from a clean sysprep /shutdown (NTFS is consistent)
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: disk-shrink
+  namespace: default            # <-- set to your namespace
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: disk-shrink-vmimage
+rules:
+  - apiGroups: ["harvesterhci.io"]
+    resources: ["virtualmachineimages"]
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: disk-shrink-vmimage
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: disk-shrink-vmimage
+subjects:
+  - kind: ServiceAccount
+    name: disk-shrink
+    namespace: default          # <-- set to your namespace
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: disk-shrink
+  namespace: default            # <-- set to your namespace (same as the PVC)
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      serviceAccountName: disk-shrink
+      restartPolicy: Never
+      containers:
+        - name: shrink
+          image: debian:12-slim
+          # kpartx / device-mapper (shrink mode) need privileged access to /dev.
+          securityContext:
+            privileged: true
+          env:
+            - name: SRC_DEV
+              value: /dev/src
+            - name: IMAGE_NAME
+              value: REPLACE_IMAGE_NAME          # e.g. win2022-cloudbase-min
+            - name: IMAGE_DISPLAY
+              value: REPLACE_IMAGE_DISPLAY        # e.g. "Windows 2022 (minimized)"
+            # compact = drop zeroed free space (safe, keeps virtual size).
+            # shrink  = also ntfsresize C: to minimum + truncate (smaller virtual
+            #           size; edits the partition table — see docs).
+            - name: MODE
+              value: "compact"
+            - name: SLACK_MIB
+              value: "1024"
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update -qq
+              apt-get install -y -qq --no-install-recommends \
+                qemu-utils ntfs-3g parted gdisk kpartx curl ca-certificates util-linux >/dev/null
+              curl -sSLo /usr/local/bin/kubectl \
+                "https://dl.k8s.io/release/$(curl -sSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+              chmod +x /usr/local/bin/kubectl
+              exec bash /scripts/entrypoint.sh
+          volumeDevices:
+            - name: src
+              devicePath: /dev/src
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+            - name: work
+              mountPath: /work
+      volumes:
+        - name: src
+          persistentVolumeClaim:
+            claimName: REPLACE_SOURCE_PVC        # e.g. winbuild-rootdisk
+        - name: scripts
+          configMap:
+            name: disk-shrink-script
+        - name: work
+          emptyDir:
+            # scratch for the qcow2; sized for the compacted image, not the raw
+            # disk. Bump if your source is large.
+            sizeLimit: 64Gi

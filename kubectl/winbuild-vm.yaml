@@ -13,14 +13,14 @@ metadata:
         "metadata": {
           "name": "winbuild-iso",
           "annotations": {
-            "harvesterhci.io/imageId": "default/image-l5hwf"
+            "harvesterhci.io/imageId": "REPLACE_NAMESPACE/REPLACE_IMAGE_NAME"
           }
         },
         "spec": {
           "accessModes": ["ReadWriteMany"],
           "resources": {"requests": {"storage": "20Gi"}},
           "volumeMode": "Block",
-          "storageClassName": "lvm-thin"
+          "storageClassName": "REPLACE_IMAGE_STORAGECLASS"
         }
       },
       {
@@ -28,12 +28,34 @@ metadata:
           "name": "winbuild-rootdisk"
         },
         "spec": {
-          "accessModes": ["ReadWriteMany"],
-          "resources": {"requests": {"storage": "64Gi"}},
+          "accessModes": ["ReadWriteOnce"],
+          "resources": {"requests": {"storage": "32Gi"}},
           "volumeMode": "Block",
           "storageClassName": "lvm-thin"
         }
       }]
+# ----------------------------------------------------------------------------
+# winbuild-iso  -- a fresh clone of your uploaded Windows ISO, attached as the
+#   boot CD-ROM. Two REPLACE_* values:
+#     harvesterhci.io/imageId  = "<namespace>/<image metadata.name>" of the ISO
+#                                (the SHORT name like default/image-xxxxx, NOT
+#                                 the displayName).
+#     storageClassName         = the ISO image's OWN dedicated StorageClass. In
+#                                Harvester every image gets one named
+#                                `longhorn-<image-name>` (backingimage backend)
+#                                or you can read it from the image object:
+#                                  kubectl get vmimage <name> -o \
+#                                    jsonpath='{.status.storageClassName}'
+#                                Using a GENERIC class (harvester-longhorn /
+#                                lvm-thin) makes the imageId clone silently
+#                                produce an EMPTY volume -> "No Bootable Device".
+#
+# winbuild-rootdisk  -- the golden disk. 32Gi is deliberate: the smaller the
+#   build disk, the smaller the exported image. Cloudbase-Init's
+#   ExtendVolumesPlugin grows C: to fill the target disk on first boot, so VMs
+#   cloned from the image can be any size >= 32Gi. lvm-thin is RWO-only (a
+#   ReadWriteMany request is rejected with MULTI_NODE_MULTI_WRITER).
+# ----------------------------------------------------------------------------
 spec:
   runStrategy: RerunOnFailure
   template:
@@ -70,7 +92,10 @@ spec:
           - cdrom: {bus: sata}
             name: windows-iso
             bootOrder: 1
-          - disk: {bus: sata}
+          # virtio-scsi rootdisk (fast). Requires the WinPE DriverPaths block in
+          # Autounattend.xml so Setup can see the disk. Switch to `sata` only if
+          # you strip that block (slower, no driver injection needed).
+          - disk: {bus: scsi}
             name: rootdisk
             bootOrder: 2
           - cdrom: {bus: sata}

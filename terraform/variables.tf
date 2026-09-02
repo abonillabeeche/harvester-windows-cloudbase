@@ -34,9 +34,14 @@ variable "output_image_name" {
 }
 
 variable "storage_class" {
-  description = "StorageClass for the build PVCs and the exported image PVC. Use 'lvm-thin' for intra-driver COW clone (fastest)."
+  description = "StorageClass for the rootdisk build PVC and the exported image PVC. Use 'lvm-thin' for intra-driver COW clone (fastest)."
   type        = string
   default     = "lvm-thin"
+}
+
+variable "iso_storage_class" {
+  description = "StorageClass for the ISO-clone PVC. MUST be the install ISO image's OWN dedicated StorageClass (Harvester names it 'longhorn-<image-name>'; read it from `kubectl get vmimage <name> -o jsonpath='{.status.storageClassName}'`). A generic class produces an empty clone and 'No Bootable Device'."
+  type        = string
 }
 
 variable "install_openssh" {
@@ -71,9 +76,9 @@ variable "memory_gib" {
 }
 
 variable "rootdisk_gib" {
-  description = "Golden image rootdisk size in GiB."
+  description = "Golden image rootdisk size in GiB. Keep this small (32 is plenty for a base Windows Server image); Cloudbase-Init's ExtendVolumesPlugin grows C: to the target disk when a consumer VM is created larger."
   type        = number
-  default     = 64
+  default     = 32
 }
 
 variable "enable_efi_tpm" {

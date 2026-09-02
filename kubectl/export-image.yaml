@@ -1,3 +1,11 @@
+# Simple, native golden-image capture: export the build rootdisk PVC straight
+# into a VirtualMachineImage. No conversion happens -- the resulting image keeps
+# the SAME virtual size as the source PVC (so build on a small rootdisk, e.g.
+# 32Gi, if you want a small image). The build VM must be Stopped first.
+#
+# Want a *smaller / compacted* image (drop zeroed free space, or shrink the
+# virtual size below the build disk)? Use the shrink-export Job instead --
+# see ../shrink-export/.
 apiVersion: harvesterhci.io/v1beta1
 kind: VirtualMachineImage
 metadata:

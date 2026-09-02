@@ -8,6 +8,20 @@
       <UILanguage>en-US</UILanguage>
       <UserLocale>en-US</UserLocale>
     </component>
+    <component name="Microsoft-Windows-PnpCustomizationsWinPE" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <!-- Load the VMDP virtio-scsi/blk drivers (pvvxscsi/vioscsi) in WinPE so
+           Setup can see a virtio-scsi rootdisk. The VMDP CD letter shifts in
+           WinPE, so scan the likely optical-drive letters; missing paths are
+           skipped. Required only when the rootdisk uses `bus: scsi` (fast
+           path). A `bus: sata` rootdisk installs on native AHCI and needs no
+           driver injection, but is noticeably slower. -->
+      <DriverPaths>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="1"><Path>D:\</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="2"><Path>E:\</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="3"><Path>F:\</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="4"><Path>G:\</Path></PathAndCredentials>
+      </DriverPaths>
+    </component>
     <component name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
       <RunSynchronous>
         <RunSynchronousCommand wcm:action="add"><Order>1</Order><Path>reg add HKLM\System\Setup\LabConfig /v BypassTPMCheck /t REG_DWORD /d 1 /f</Path></RunSynchronousCommand>
@@ -61,6 +75,11 @@
         <Username>Administrator</Username>
       </AutoLogon>
       <FirstLogonCommands>
+        <!-- TWO-FILE PATH (kubectl create secret with both keys, or Terraform):
+             bootstrap.ps1 rides the sysprep CD as its own file, so scan the
+             optical drives for it and run it. For the SINGLE-FILE UI path this
+             block is replaced by build-answerfile.py, which folds bootstrap.ps1
+             (base64) straight into FirstLogonCommands. -->
         <SynchronousCommand wcm:action="add">
           <CommandLine>cmd /c "for %d in (D E F G H I) do if exist %d:\bootstrap.ps1 powershell.exe -NoProfile -ExecutionPolicy Bypass -File %d:\bootstrap.ps1"</CommandLine>
           <Description>run winbuild bootstrap</Description>
