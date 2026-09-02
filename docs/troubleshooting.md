@@ -117,6 +117,11 @@ copy) — sysprep `/generalize` refuses. Modern Chromium Edge
    uninstall, so generalize is satisfied. `-SkipLicense` lets it provision from
    the installed package's manifest without the original `.appx` + license file.
 
+> **Validated end-to-end:** rebuilt from a clean `bootstrap.ps1` (this reconcile
+> fix + `allow_reboot=false` above) on a second Harvester v1.8.1 cluster —
+> `/generalize /shutdown` reached `Stopped` in ~12 min, no boot-loop, no
+> 0x80073cf2. Confirms the fix isn't cluster-specific (verified 2026-09-02).
+
 ## virtio-scsi: Setup shows "no disks found"
 
 **Cause:** the rootdisk is `bus: scsi` but the answer file has no WinPE
@@ -173,3 +178,48 @@ mitigation. If it recurs, delete the VM + rootdisk and retry.
   VM.
 - Confirm the consumer VM actually has a cloud-config / user-data attached
   (KubeVirt `cloudInitNoCloud` or a Harvester cloud-config template).
+
+## Cloud-config doesn't show up in the Harvester UI's "Cloud Config" tab
+
+**Symptom:** the VM's user-data is being applied correctly by Cloudbase-Init
+(hostname/user creation works, `AgentConnected=True`), but the Harvester UI
+shows no cloud-config for the VM.
+
+**Cause:** the UI's cloud-config tab reads the backing **Secret**, not just the
+VM's `cloudInitNoCloud` volume reference. Two things on the Secret are
+required for the UI to recognize it — KubeVirt/Cloudbase-Init don't care about
+either, so a Secret missing them still works functionally, it just won't
+render in the UI:
+
+1. **`type: secret`** (the Kubernetes Secret `type` field) — a default
+   `Opaque` secret with identical `data`/`stringData` is invisible to the UI's
+   picker.
+2. The label `harvesterhci.io/cloud-init-template: harvester`.
+
+```yaml
+apiVersion: v1
+kind: Secret
+type: secret                 # not Opaque
+metadata:
+  name: my-vm-cloudinit
+  labels:
+    harvesterhci.io/cloud-init-template: harvester
+stringData:
+  userdata: |
+    #cloud-config
+    ...
+  networkdata: ""
+---
+# VM volume, referencing it the normal KubeVirt way:
+volumes:
+  - name: cloudinitdisk
+    cloudInitNoCloud:
+      secretRef:            # NOT userDataSecretRef — that field doesn't exist
+        name: my-vm-cloudinit
+      networkDataSecretRef:
+        name: my-vm-cloudinit
+```
+
+Confirmed by diffing a hand-written manifest (booted fine, cloud-init applied,
+but no UI tab) against a VM created through the Harvester UI itself — the only
+structural difference was the Secret's `type`.
