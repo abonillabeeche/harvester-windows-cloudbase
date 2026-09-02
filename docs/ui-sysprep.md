@@ -57,7 +57,10 @@ mid-install.
 
 ## Using it in the UI
 
-1. Generate `kubectl/Autounattend-selfcontained.xml`.
+1. The ready-to-paste file is already checked in at
+   [`kubectl/Autounattend-selfcontained.xml`](../kubectl/Autounattend-selfcontained.xml)
+   — open it and copy the whole contents. Only regenerate it (see below) if
+   you've edited `Autounattend.xml` or `bootstrap.ps1`.
 2. **Virtual Machines → Create → From Template →**
    `windows-iso-image-base-template` (namespace `harvester-public`, the stock
    built-in). It provides the CD-ROM boot disk, a rootdisk, and the VMDP driver

@@ -4,5 +4,7 @@ terraform.tfstate
 terraform.tfstate.backup
 *.tfplan
 
-# build artifact produced by kubectl/build-answerfile.py
-kubectl/Autounattend-selfcontained.xml
+# kubectl/Autounattend-selfcontained.xml is a build artifact of
+# kubectl/build-answerfile.py, but is checked in ready-to-paste for the
+# Harvester UI. Regenerate + re-commit it whenever Autounattend.xml or
+# bootstrap.ps1 change (see docs/ui-sysprep.md).

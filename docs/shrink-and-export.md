@@ -118,6 +118,11 @@ The same image was also verified with `BACKEND=cdi` +
 `TARGET_STORAGECLASS=<a tested StorageClass>`: identical physical/virtual sizes,
 `Imported=True`, landed on the target class instead of Longhorn.
 
+Re-verified on a second cluster/build: physical **9.19 GiB** (9586475008),
+virtual **12.96 GiB** (12842958848), `BACKEND=cdi`, whole Job (compact + upload)
+finished in **~3 min**. Numbers vary run-to-run with actual NTFS usage, but the
+Job's own steps and their ordering don't.
+
 ## Why the Job talks to `harvester.harvester-system.svc:8443`
 
 Harvester's image **upload API** is a Steve action:
