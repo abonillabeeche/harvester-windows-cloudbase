@@ -59,6 +59,24 @@ See [../shrink-export/README.md](../shrink-export/README.md) for usage.
 > `/shutdown`) and is best-effort on GPT disks. If you just want a small image,
 > prefer *building on a small rootdisk* (32Gi) over post-hoc `shrink`.
 
+## A verified run
+
+Captured against a real Windows Server 2022 golden build (`shrink` mode,
+`SLACK_MIB=1024`):
+
+| Stage | Size |
+|---|---|
+| Build rootdisk (virtual, at build time) | 32 Gi |
+| NTFS used / `ntfsresize` minimum | ~11.25 GB |
+| NTFS resized to (min + 1 GiB slack) | ~12.3 GB |
+| **Exported image — virtual size** | **12 GiB** (`.status.virtualSize` = 12853444608) |
+| **Exported image — physical size** | **8.87 GiB** (`.status.size` = 9521332224) |
+
+The whole Job (apt install of tooling → `ntfsresize` → partition-table
+`resizepart` → `qemu-img convert` → `qemu-img resize --shrink` → upload →
+`Imported=True`) ran in ~2.5 min for this image. The result is a 12 Gi image
+that Cloudbase-Init's `ExtendVolumesPlugin` grows to any target disk on deploy.
+
 ## Why the Job talks to `harvester.harvester-system.svc:8443`
 
 Harvester's image **upload API** is a Steve action:
@@ -86,6 +104,15 @@ kube-apiserver — which is why the ServiceAccount needs RBAC on
 reach the ClusterIP and must go through the Rancher VIP, supply a real Harvester
 API token as a Bearer instead.
 
+**It connects by ClusterIP, not by the DNS name.** The API's TLS listener
+rejects the SNI `harvester.harvester-system.svc` with alert 112
+(unrecognized_name), which OpenSSL 3 treats as fatal
+(`curl: (35) ... error:0A000458:SSL routines::tlsv1 unrecognized name`). The Job
+resolves the service to its ClusterIP and hits `https://<ip>:8443`: an
+IP-literal host makes curl send **no** SNI (RFC 6066 forbids IP-literal SNI), so
+the handshake succeeds. `-k` skips cert verification and a `Host:` header
+preserves any name-based routing.
+
 ### Gotchas
 
 - Form field name is backend-specific: **`chunk`** (backingimage) / `file`
@@ -98,3 +125,9 @@ API token as a Bearer instead.
   Windows images are large enough to be fine.
 - The upload POST blocks for the whole transfer; the Job gives curl a long
   `--max-time`.
+- Connect by **ClusterIP**, not the `*.svc` name — see the SNI note above.
+- Under `set -o pipefail`, never `yes | ntfsresize`/`yes | parted`: `yes` dies
+  with SIGPIPE (141) when the consumer exits and trips pipefail *after* a
+  successful operation. Use `echo y` / a finite `printf`. `parted -s` also
+  auto-answers "No" to the shrink prompt — drive it with
+  `printf 'Yes\nYes\n' | parted ---pretend-input-tty`.
