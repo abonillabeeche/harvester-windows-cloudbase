@@ -104,9 +104,10 @@ if [ "$MODE" = "shrink" ]; then
   log "checking NTFS consistency..."
   ntfsfix -d "$win_part" || die "ntfsfix failed — NTFS is dirty; capture after a clean sysprep /shutdown"
 
-  # Minimum size ntfsresize will allow, in bytes.
+  # Minimum size ntfsresize will allow, in bytes. The relevant line is:
+  #   "You might resize at 5179383808 bytes or 5180 MB (freeing 26629 MB)."
   min_bytes="$(ntfsresize --info --force "$win_part" \
-    | awk -F'[:.]' '/You might resize at/{gsub(/[^0-9]/,"",$2); print $2}')"
+    | grep -oP 'You might resize at \K[0-9]+' | head -1)"
   [ -n "$min_bytes" ] || die "could not determine NTFS minimum size"
   target_bytes=$(( min_bytes + SLACK_MIB * 1024 * 1024 ))
   # align target up to 1 MiB
@@ -116,7 +117,9 @@ if [ "$MODE" = "shrink" ]; then
   yes | ntfsresize --force --size "$target_bytes" "$win_part"
 
   # Release the partition mapping before editing the on-disk table.
+  sync
   kpartx -dv "$SRC_DEV"
+  udevadm settle 2>/dev/null || sleep 2
 
   log "shrinking the partition table entry #$partnum..."
   # Work directly on $SRC_DEV. parted resizepart needs an END in MiB.
