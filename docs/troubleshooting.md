@@ -50,6 +50,35 @@ bad answer file at `C:\Windows\panther\unattend.xml`, so a mere reboot
 re-validates the cached copy; you must wipe the rootdisk so `windowsPE` re-copies
 the fixed file.
 
+## Deployed VM boot-loops: "The computer restarted unexpectedly" (only with a cloud-init disk)
+
+**Symptom:** a VM cloned from the golden image boots, shows the "Getting ready" /
+mini-setup screens (looks like it's "re-running sysprep"), then fails with **"The
+computer restarted unexpectedly or encountered an unexpected error. Windows
+installation cannot proceed."** and loops. It only happens when a **cloud-init /
+NoCloud disk** (user-data) is attached; the same image deploys fine without one.
+
+**Cause:** on first boot the main Cloudbase-Init **service** runs *during* the
+sysprep **specialize** pass. It finds the NoCloud metadata, `SetHostNamePlugin`
+sets the hostname — which requires a reboot — and if `allow_reboot` is left at its
+**default of `true`**, the service **reboots the machine itself**, out from under
+Windows Setup. Setup sees an unsanctioned restart mid-pass and bails with the
+error above. The concurrent specialize instance logs the tell-tale
+`ExtendVolumesPlugin failed ... 'A system shutdown is in progress.'`, and
+`C:\Windows\Panther\setupact.log` shows `Unattend action requested immediate
+reboot and recall` / `Restarting machine during first boot phase`.
+
+Without a metadata disk there's no hostname to set, so nothing reboots and
+specialize completes — which is why it looks intermittent.
+
+**Fix:** set **`allow_reboot=false`** in **`cloudbase-init.conf`** (the main
+service config) — not just in `cloudbase-init-unattend.conf`. The hostname is then
+just written to the registry and applied by Setup's own sanctioned reboot at the
+end of specialize. `bootstrap.ps1` now writes both `allow_reboot=false` and
+`stop_service_on_exit=false` into the main config. To repair an **existing**
+golden image without a full rebuild, offline-mount its rootdisk and append those
+two lines to `…\Cloudbase-Init\conf\cloudbase-init.conf`, then re-export.
+
 ## sysprep: "a fatal error occurred while trying to sysprep the machine" (0x80073cf2)
 
 **Symptom:** `bootstrap.ps1` runs, but sysprep aborts.

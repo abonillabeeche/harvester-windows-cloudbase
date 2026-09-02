@@ -108,7 +108,15 @@ local_scripts_path=C:\Program Files\Cloudbase Solutions\Cloudbase-Init\LocalScri
 metadata_services=cloudbaseinit.metadata.services.nocloudservice.NoCloudConfigDriveService,cloudbaseinit.metadata.services.configdrive.ConfigDriveService,cloudbaseinit.metadata.services.base.EmptyMetadataService
 '@
 
-$mainConf = $common + "`nlogfile=cloudbase-init.log`ncheck_latest_version=true`n"
+# allow_reboot=false is CRITICAL: on first boot the main service runs during the
+# sysprep *specialize* pass. If SetHostNamePlugin (or any plugin) requests a
+# reboot and allow_reboot defaults to true, the service reboots the machine out
+# from under Windows Setup -> "The computer restarted unexpectedly or encountered
+# an unexpected error. Windows installation cannot proceed." boot loop. With
+# allow_reboot=false the hostname is just written and applied by Setup's own
+# sanctioned reboot at the end of specialize. Only bites when a metadata/config
+# (NoCloud) disk is attached (otherwise there's no hostname to set).
+$mainConf = $common + "`nlogfile=cloudbase-init.log`ncheck_latest_version=true`nallow_reboot=false`nstop_service_on_exit=false`n"
 $unattendConf = $common + @'
 
 logfile=cloudbase-init-unattend.log

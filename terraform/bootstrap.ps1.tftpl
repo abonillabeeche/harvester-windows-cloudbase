@@ -100,7 +100,12 @@ ntp_use_dhcp_config=true
 local_scripts_path=C:\Program Files\Cloudbase Solutions\Cloudbase-Init\LocalScripts\
 metadata_services=cloudbaseinit.metadata.services.nocloudservice.NoCloudConfigDriveService,cloudbaseinit.metadata.services.configdrive.ConfigDriveService,cloudbaseinit.metadata.services.base.EmptyMetadataService
 '@
-$mainConf     = $common + "`nlogfile=cloudbase-init.log`ncheck_latest_version=true`n"
+# allow_reboot=false is CRITICAL: the main service runs during the sysprep
+# specialize pass on first boot. If a plugin (e.g. SetHostName) requests a reboot
+# and allow_reboot defaults to true, the service reboots out from under Windows
+# Setup -> "computer restarted unexpectedly" boot loop (only when a NoCloud/config
+# disk is attached). Let Setup's own sanctioned reboot apply the hostname.
+$mainConf     = $common + "`nlogfile=cloudbase-init.log`ncheck_latest_version=true`nallow_reboot=false`nstop_service_on_exit=false`n"
 $unattendConf = $common + @'
 
 logfile=cloudbase-init-unattend.log
