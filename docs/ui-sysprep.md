@@ -29,6 +29,12 @@ The fix is to **fold `bootstrap.ps1` into the answer file itself.**
 
 ## `build-answerfile.py`
 
+> **You do not need to run this to use the UI path.** The folded artifacts are
+> checked in — `kubectl/Autounattend-selfcontained-{2022,2025,w11}.xml` — so the
+> UI flow below is copy-and-paste. Run the generator only when you **edit**
+> `bootstrap.ps1` or a base answer file, or want a non-default edition. This
+> section explains what it does and why the artifact looks the way it does.
+
 ```bash
 cd kubectl/
 ./build-answerfile.py -w 2025   # reads Autounattend-2025.xml + bootstrap.ps1

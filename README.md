@@ -97,13 +97,27 @@ form. It writes a Secret with a single `autounattend.xml` key and attaches it as
 a sysprep CD — so the *only* thing you paste is one answer file.
 
 Our first-boot logic lives in `bootstrap.ps1`, and the UI has no field for a
-second file, so we fold the script into the answer file:
+second file, so the script is folded into the answer file. **That is already
+done for you** — pick the file matching your Windows version and copy its whole
+contents. No CLI, no clone; open it straight from the repo:
+
+| Your ISO | Paste this file |
+|---|---|
+| Windows Server 2022 | [`kubectl/Autounattend-selfcontained-2022.xml`](kubectl/Autounattend-selfcontained-2022.xml) |
+| Windows Server 2025 | [`kubectl/Autounattend-selfcontained-2025.xml`](kubectl/Autounattend-selfcontained-2025.xml) |
+| Windows 11 | [`kubectl/Autounattend-selfcontained-w11.xml`](kubectl/Autounattend-selfcontained-w11.xml) |
+
+Getting the version wrong is not cosmetic — the edition string inside has to
+match your ISO's `install.wim` exactly, or Setup stops on the edition picker and
+the unattended run hangs. See
+[docs/windows-versions.md](docs/windows-versions.md).
+
+You only need `build-answerfile.py` if you **edit** `bootstrap.ps1` or a base
+answer file, or want a non-default edition (Datacenter, Core):
 
 ```bash
 cd kubectl/
-./build-answerfile.py -w 2025      # → Autounattend-selfcontained-2025.xml
-#   -w 2022 | 2025 | w11 — required; it selects the /IMAGE/NAME edition string,
-#   which must match your ISO exactly. See docs/windows-versions.md.
+./build-answerfile.py -w 2025 --edition 'Windows Server 2025 SERVERDATACENTER'
 ```
 
 Then create the VM in the UI. **Start from the built-in
