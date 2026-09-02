@@ -75,13 +75,13 @@ mid-install.
    — open the one matching your ISO and copy the whole contents. Only regenerate
    it (see below) if you've edited the base answer file or `bootstrap.ps1`.
 2. **Virtual Machines → Create → From Template →**
-   `windows-iso-image-base-template` (namespace `harvester-public`, the stock
-   built-in). It provides the CD-ROM boot disk, a rootdisk, and the VMDP driver
-   CD (`registry.suse.com/suse/vmdp/vmdp:2.5.5`). Set the CD-ROM's **Image** to
-   your Windows ISO; on the **Volume** tab set the rootdisk bus to
-   **virtio-scsi**, reduce it to **36Gi**, and pick your tested StorageClass
-   (`harvester-longhorn` is fine; use access mode **Single-Node/ReadWriteOnce**
-   if the class is RWO-only).
+   `windows-iso-medium-template` (namespace `harvester-public`). It provides
+   the CD-ROM boot disk, a rootdisk, the VMDP driver CD
+   (`registry.suse.com/suse/vmdp/vmdp:2.5.5`), 4 vCPU / 16 GiB, and the Hyper-V
+   enlightenments. Set the CD-ROM's **Image** to your Windows ISO; on the
+   **Volume** tab reduce the rootdisk to **36Gi** and pick your tested
+   StorageClass (`harvester-longhorn` is fine; use access mode
+   **Single-Node/ReadWriteOnce** if the class is RWO-only).
 3. **Advanced Options → set OS Type = `Windows`.** The **Windows Unattended &
    Sysprep Configuration** section only appears once the OS type is Windows.
    Then **Create New**, name the secret (e.g. `winbuild-unattend`), and paste
@@ -91,25 +91,19 @@ mid-install.
 > **Caveats.**
 > - The **OS Type = Windows** step in (3) is easy to miss: without it the
 >   Unattended & Sysprep section is hidden entirely.
-> - **There is no Hyper-V enlightenments toggle in the UI**, and the base
->   template does not carry them: inspected on v1.8.1,
->   `windows-iso-image-base-template` has only `acpi`, no `hyperv` block, no
->   Hyper-V clock timers, and a **virtio-blk** rootdisk. The **OS Type =
->   Windows** step is what applies them — on **v1.9+**, Windows VMs default to
->   virtio-scsi, Hyper-V enlightenments and cloud-init
->   ([harvester/harvester#11124](https://github.com/harvester/harvester/issues/11124),
->   closed, milestone v1.9.0). The Unattended & Sysprep form is v1.9+ anyway, so
->   the UI path always lands on a version that applies them. They affect
->   *performance*, not correctness — to force them elsewhere, use the `kubectl`
->   or Terraform path (both set the block explicitly) or patch
->   `spec.template.spec.domain.features.hyperv` after creating the VM.
-> - **Template names vary by cluster/version.**
->   `windows-iso-image-base-template` is the stock built-in. Sized variants
->   (`windows-iso-small` / `-medium` / `-large`, `windows-w11-iso`) are **not**
->   shipped by Harvester — where they exist someone applied them locally. If no
->   template fits, build a blank VM with a CD-ROM boot disk, a 36Gi virtio-scsi
->   rootdisk, and a container-image volume `registry.suse.com/suse/vmdp/vmdp:2.5.5`
->   — matching [`kubectl/winbuild-vm.yaml`](../kubectl/winbuild-vm.yaml).
+> - The Hyper-V enlightenments come from the **template** — there is no toggle
+>   for them in the create form. They ship on the Windows templates as of
+>   [harvester/harvester#11127](https://github.com/harvester/harvester/pull/11127)
+>   (merged, milestone v1.9.0), which also added the sized profiles
+>   (`windows-iso-small` / `-medium` / `-large`, `windows-w11-iso`). On a
+>   pre-v1.9 cluster, apply
+>   [`templates/windows-iso-medium-template.yaml`](../templates/windows-iso-medium-template.yaml)
+>   from this repo. They affect *performance*, not correctness.
+> - With no suitable template at all, build a blank VM with a CD-ROM boot disk,
+>   a 36Gi rootdisk, and a container-image volume
+>   `registry.suse.com/suse/vmdp/vmdp:2.5.5` — matching
+>   [`kubectl/winbuild-vm.yaml`](../kubectl/winbuild-vm.yaml), which sets the
+>   enlightenments explicitly.
 
 Or create the secret from the generated file directly:
 

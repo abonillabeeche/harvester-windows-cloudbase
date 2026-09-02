@@ -1,0 +1,172 @@
+# Backport of the medium Windows ISO template for pre-v1.9 Harvester clusters.
+#
+# The size-tiered Windows profiles (windows-iso-small / -medium / -large and
+# windows-w11-iso) ship with Harvester v1.9.0 -- see
+# https://github.com/harvester/harvester/pull/11127. On v1.9+ this file is
+# redundant: the template is already in the `harvester-public` namespace and in
+# the Create -> From Template dropdown.
+#
+# On an older cluster, apply it once (names match upstream, so a later upgrade
+# leaves it alone rather than creating a duplicate):
+#
+#   kubectl apply -f templates/windows-iso-medium-template.yaml
+#
+# What it gives you over the stock `windows-iso-image-base-template`: 4 vCPU /
+# 16 GiB instead of 1 vCPU, and -- on pre-v1.9, where the base template carries
+# only `acpi` -- the Hyper-V TLFS enlightenments and matching clock timers.
+#
+# For a GOLDEN-IMAGE build, drop the rootdisk to 36Gi in the UI: the exported
+# image keeps the build disk's virtual size, and Cloudbase-Init's
+# ExtendVolumesPlugin grows C: on deploy. 64Gi here is sized for a
+# general-purpose VM, not for image building.
+#
+# No storageClassName is set, so the rootdisk lands on the cluster default
+# class -- pick your tested class in the UI when you create the VM. accessModes
+# ReadWriteMany is what lets evictionStrategy LiveMigrateIfPossible actually
+# migrate; block/LVM-based CSI classes are typically RWO-only and reject it with
+# `unsupported access mode MULTI_NODE_MULTI_WRITER`. On those, choose
+# Single-Node (ReadWriteOnce) in the UI. A build VM never needs to migrate.
+#
+# Note that a VirtualMachineTemplateVersion is immutable: to change one, delete
+# it and re-apply rather than editing in place.
+---
+apiVersion: harvesterhci.io/v1beta1
+kind: VirtualMachineTemplate
+metadata:
+  name: windows-iso-medium-template
+  namespace: harvester-public
+spec:
+  description: Medium Windows Server VM (4 vCPU, 16 GiB RAM, 64 GiB rootdisk). Boots from an uploaded Windows ISO with the VMDP virtio-driver container attached. Enables balanced Hyper-V enlightenments and a virtio-blk rootdisk. Sized for general Windows Server workloads (IIS, small SQL, application servers).
+---
+apiVersion: harvesterhci.io/v1beta1
+kind: VirtualMachineTemplateVersion
+metadata:
+  name: windows-iso-medium-optimized
+  namespace: harvester-public
+spec:
+  templateId: harvester-public/windows-iso-medium-template
+  vm:
+    metadata:
+      labels:
+        harvesterhci.io/os: windows
+      annotations:
+        harvesterhci.io/reservedMemory: 256Mi
+        # The CD-ROM's imageId is left empty on purpose -- you pick the Windows
+        # ISO in the UI when you create the VM from this template.
+        harvesterhci.io/volumeClaimTemplates: |-
+          [{
+            "metadata": {
+              "name": "pvc-cdrom-disk",
+              "annotations": {
+                "harvesterhci.io/imageId": ""
+              }
+            },
+            "spec":{
+              "accessModes": ["ReadWriteMany"],
+              "resources":{
+                "requests":{
+                  "storage": "20Gi"
+                }
+              },
+              "volumeMode": "Block"
+            }
+          },
+          {
+            "metadata": {
+              "name": "pvc-rootdisk"
+            },
+            "spec":{
+              "accessModes": ["ReadWriteMany"],
+              "resources":{
+                "requests":{
+                  "storage": "64Gi"
+                }
+              },
+              "volumeMode": "Block"
+            }
+          }]
+    spec:
+      runStrategy: RerunOnFailure
+      template:
+        spec:
+          evictionStrategy: LiveMigrateIfPossible
+          domain:
+            features:
+              acpi:
+                enabled: true
+              apic:
+                enabled: true
+              smm:
+                enabled: true
+              hyperv:
+                relaxed:
+                  enabled: true
+                vapic:
+                  enabled: true
+                spinlocks:
+                  enabled: true
+                  spinlocks: 8191
+                vpindex:
+                  enabled: true
+                synic:
+                  enabled: true
+                synictimer:
+                  enabled: true
+                ipi:
+                  enabled: true
+                runtime:
+                  enabled: true
+                reset:
+                  enabled: true
+            clock:
+              utc: {}
+              timer:
+                hpet:
+                  present: false
+                hyperv:
+                  present: true
+                pit:
+                  tickPolicy: delay
+                rtc:
+                  tickPolicy: catchup
+            cpu:
+              cores: 4
+            devices:
+              disks:
+              - cdrom:
+                  bus: sata
+                name: cdrom-disk
+                bootOrder: 1
+              - disk:
+                  bus: virtio
+                name: rootdisk
+                bootOrder: 2
+              - cdrom:
+                  bus: sata
+                name: virtio-container-disk
+              interfaces:
+              - name: default
+                model: e1000
+                masquerade: {}
+              inputs:
+              - bus: usb
+                name: tablet
+                type: tablet
+            resources:
+              limits:
+                memory: 16Gi
+                cpu: 4
+          networks:
+          - name: default
+            pod: {}
+          volumes:
+          - persistentVolumeClaim:
+              claimName: pvc-cdrom-disk
+            name: cdrom-disk
+          - persistentVolumeClaim:
+              claimName: pvc-rootdisk
+            name: rootdisk
+          - containerDisk:
+              image: registry.suse.com/suse/vmdp/vmdp:2.5.5
+              imagePullPolicy: IfNotPresent
+            name: virtio-container-disk
