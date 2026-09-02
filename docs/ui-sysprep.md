@@ -58,11 +58,25 @@ mid-install.
 ## Using it in the UI
 
 1. Generate `kubectl/Autounattend-selfcontained.xml`.
-2. In the VM create form, open **Windows Unattended & Sysprep → Create New**,
-   name the secret (e.g. `winbuild-unattend`), and paste the file's contents.
-3. Attach the VMDP driver CD (containerDisk
-   `registry.suse.com/suse/vmdp/vmdp:2.5.5`) and a virtio-scsi rootdisk as in
-   [`kubectl/winbuild-vm.yaml`](../kubectl/winbuild-vm.yaml).
+2. **Virtual Machines → Create → From Template →** `windows-iso-medium` (in the
+   `harvester-public` namespace). This template already provides the CD-ROM boot
+   disk, a virtio-scsi rootdisk, the VMDP driver CD
+   (`registry.suse.com/suse/vmdp/vmdp:2.5.5`) and the Hyper-V enlightenments — so
+   you don't add disks by hand. Set the CD-ROM's **Image** to your Windows ISO,
+   and on the **Volume** tab reduce the rootdisk to **32Gi** (access mode
+   **Single-Node/ReadWriteOnce** on `lvm-thin`).
+3. **Advanced Options → set OS Type = `Windows`.** The **Windows Unattended &
+   Sysprep Configuration** section only appears once the OS type is Windows.
+   Then **Create New**, name the secret (e.g. `winbuild-unattend`), and paste
+   the contents of `Autounattend-selfcontained.xml`.
+4. **Create.** The VM installs, sypreps, and powers off.
+
+> The **OS Type = Windows** step in (3) is easy to miss: without it the
+> Unattended & Sysprep section is hidden entirely. If you built the VM from a
+> non-template blank form, you can still add the same pieces manually — a CD-ROM
+> boot disk, a 32Gi virtio-scsi rootdisk, and a container-image volume
+> `registry.suse.com/suse/vmdp/vmdp:2.5.5` — matching
+> [`kubectl/winbuild-vm.yaml`](../kubectl/winbuild-vm.yaml).
 
 Or create the secret from the generated file directly:
 

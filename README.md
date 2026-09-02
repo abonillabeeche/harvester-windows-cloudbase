@@ -74,17 +74,34 @@ cd kubectl/
 ./build-answerfile.py          # → Autounattend-selfcontained.xml
 ```
 
-Then, creating the VM in the UI:
+Then create the VM in the UI. **Start from the built-in
+`windows-iso-medium` template** — it already lays out the exact build shape, so
+you don't add disks by hand:
 
-1. **Windows Unattended & Sysprep → Create New** → paste
-   `Autounattend-selfcontained.xml`.
-2. Add a **virtio-scsi** rootdisk (32Gi is plenty).
-3. Add the **VMDP driver CD** — a container-image volume
-   `registry.suse.com/suse/vmdp/vmdp:2.5.5`.
-4. Boot from your uploaded Windows ISO. Start the VM; it installs, sypreps, and
-   powers off (~20 min). Console log inside the VM: `C:\winbuild.log`.
-5. Capture the image: **Images → Create → from the build VM's rootdisk volume**
+- a **CD-ROM as boot disk** (boot order 1),
+- a **virtio-scsi rootdisk** (boot order 2),
+- the **VMDP driver CD** (`registry.suse.com/suse/vmdp/vmdp:2.5.5`), and
+- the full **Hyper-V enlightenments** (fast install).
+
+Steps:
+
+1. **Virtual Machines → Create → From Template →** `windows-iso-medium`.
+2. On the CD-ROM (boot) disk, set the **Image** to your uploaded Windows ISO.
+3. On the **rootdisk (Volume tab)**, reduce the size from 64Gi to **32Gi** (it
+   grows on deploy). On `lvm-thin`, set the access mode to **Single-Node
+   (ReadWriteOnce)** — `lvm-thin` rejects ReadWriteMany.
+4. **Advanced Options → set OS Type = `Windows`.** This is what makes the
+   **Windows Unattended & Sysprep Configuration** section appear. Then
+   **Create New →** paste `Autounattend-selfcontained.xml`.
+5. **Create.** The VM installs, sypreps, and powers off (~20 min). Console log
+   inside the VM: `C:\winbuild.log`.
+6. Capture the image: **Images → Create → from the build VM's rootdisk volume**
    (or apply `kubectl/export-image.yaml`).
+
+> No `windows-iso-medium` template? It ships in the `harvester-public`
+> namespace on current Harvester. If it's missing, build any VM with a CD-ROM
+> boot disk, a 32Gi virtio-scsi rootdisk, and a container-image volume
+> `registry.suse.com/suse/vmdp/vmdp:2.5.5` — that's all the template adds.
 
 Full detail — the single-key Secret model, the 1024-char `FirstLogonCommands`
 limit, and why we base64-fold the script — is in
