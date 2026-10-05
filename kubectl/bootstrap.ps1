@@ -48,7 +48,20 @@ foreach ($key in $policies.Keys) {
     }
   } catch { Log "policy warning on ${key}: $_" }
 }
-Log 'Windows Update + Microsoft Store servicing disabled for the build'
+# Edge has its own updater, separate from Windows Update and the Store. On
+# Server 2022 it updates Chromium Edge for the logged-on Administrator only,
+# which is the same "installed for a user, but not provisioned" 0x80073cf2.
+# The 2022 answer file already freezes it in the specialize pass (before first
+# logon); repeat it here for media whose answer file does not.
+Get-ScheduledTask -TaskName 'MicrosoftEdgeUpdate*' -EA SilentlyContinue | Disable-ScheduledTask -EA SilentlyContinue | Out-Null
+foreach ($s in 'edgeupdate','edgeupdatem') {
+  Stop-Service $s -Force -EA SilentlyContinue
+  Set-Service  $s -StartupType Disabled -EA SilentlyContinue
+}
+New-Item -Path 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeUpdate' -Force | Out-Null
+Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeUpdate' -Name UpdateDefault -Value 0 -Type DWord
+Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeUpdate' -Name AutoUpdateCheckPeriodMinutes -Value 0 -Type DWord
+Log 'Windows Update + Microsoft Store + Edge Update servicing disabled for the build'
 
 # 0b. OpenSSH is NOT installed in the golden image by default. Add-WindowsCapability
 # for OpenSSH.Server pulls the FoD package online and adds ~6 minutes to the
@@ -190,6 +203,10 @@ sc config InstallService start= demand
 sc config DoSvc start= auto
 reg delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /f
 reg delete "HKLM\SOFTWARE\Policies\Microsoft\WindowsStore" /v AutoDownload /f
+sc config edgeupdate start= auto
+sc config edgeupdatem start= demand
+reg delete "HKLM\SOFTWARE\Policies\Microsoft\EdgeUpdate" /f
+powershell -NoProfile -Command "Get-ScheduledTask -TaskName MicrosoftEdgeUpdate* -EA SilentlyContinue | Enable-ScheduledTask"
 exit /b 0
 '@ | Set-Content -Path (Join-Path $setupScripts 'SetupComplete.cmd') -Encoding ASCII
 Log 'Wrote SetupComplete.cmd to restore servicing on deployed clones'
@@ -225,7 +242,7 @@ try {
     try {
       $written = 0
       while ($written -lt $target) {
-        $n = [int][math]::Min($chunk, $target - $written)
+        $n = [int][math]::Min([long]$chunk, [long]($target - $written))
         $fs.Write($buf, 0, $n)
         $written += $n
       }

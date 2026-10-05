@@ -132,6 +132,23 @@ EOF
 }
 
 [ -b "$SRC_DEV" ] || die "$SRC_DEV is not a block device (attach the PVC via volumeDevices)"
+
+# Windows guests see 512-byte sectors (the QEMU default), so the partition table
+# on the disk is in 512-byte units. Some CSI block devices (Portworx pxd, for
+# one) report 4096-byte logical sectors on the host, and every Linux tool then
+# reads the offsets 8x too large ("Can't have a partition outside the disk!").
+# Re-expose the device through a 512-byte-sector loop device in that case.
+LOOP=""
+SS="$(blockdev --getss "$SRC_DEV")"
+if [ "$SS" != "512" ]; then
+  # A privileged container only has the /dev nodes that existed when it
+  # started, so the free loop device losetup picks may have no node yet.
+  LOOP="$(losetup -f)" || die "no free loop device"
+  [ -b "$LOOP" ] || mknod "$LOOP" b 7 "${LOOP#/dev/loop}" || die "mknod $LOOP failed"
+  losetup --sector-size 512 "$LOOP" "$SRC_DEV" || die "losetup --sector-size 512 failed"
+  log "source reports ${SS}-byte sectors; using 512-byte loop $LOOP"
+  SRC_DEV="$LOOP"
+fi
 [ -n "${IMAGE_NAME:-}" ] || die "IMAGE_NAME is required"
 mkdir -p "$WORK"
 
@@ -148,7 +165,7 @@ if [ "$MODE" = "shrink" ]; then
   # instead of guessing. The "add map <name> ..." lines are in partition order.
   mapfile -t MAPS < <(kpartx -av "$SRC_DEV" | awk '/add map/{print "/dev/mapper/"$3}')
   # Always release the partition maps on exit, even if a later step fails.
-  trap 'sync; kpartx -dv "$SRC_DEV" >/dev/null 2>&1 || true' EXIT
+  trap 'sync; kpartx -dv "$SRC_DEV" >/dev/null 2>&1 || true; [ -z "$LOOP" ] || losetup -d "$LOOP" || true' EXIT
   udevadm settle 2>/dev/null || sleep 2
   [ "${#MAPS[@]}" -gt 0 ] || die "kpartx mapped no partitions on $SRC_DEV"
   # parted is the source of truth for partition NUMBER + geometry; its numbered

@@ -73,6 +73,23 @@
       </UserData>
     </component>
   </settings>
+  <!-- specialize runs as SYSTEM before the first logon. Freeze Edge Update and
+       Windows Update here: Edge has its own updater (edgeupdate/edgeupdatem +
+       MicrosoftEdgeUpdate* tasks) that bootstrap.ps1's step 0a used to miss, and
+       an Edge update registered for Administrator only makes generalize fail
+       with 0x80073cf2. SetupComplete.cmd (bootstrap.ps1 step 5b) undoes this
+       on every deployed clone. -->
+  <settings pass="specialize">
+    <component name="Microsoft-Windows-Deployment" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <RunSynchronous>
+        <RunSynchronousCommand wcm:action="add"><Order>1</Order><Path>reg add HKLM\SOFTWARE\Policies\Microsoft\EdgeUpdate /v UpdateDefault /t REG_DWORD /d 0 /f</Path></RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add"><Order>2</Order><Path>reg add HKLM\SOFTWARE\Policies\Microsoft\EdgeUpdate /v AutoUpdateCheckPeriodMinutes /t REG_DWORD /d 0 /f</Path></RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add"><Order>3</Order><Path>powershell -NoProfile -Command "Get-ScheduledTask -TaskName MicrosoftEdgeUpdate* -EA SilentlyContinue | Disable-ScheduledTask"</Path></RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add"><Order>4</Order><Path>powershell -NoProfile -Command "'edgeupdate','edgeupdatem','wuauserv','UsoSvc' | % { Stop-Service $_ -Force -EA 0; Set-Service $_ -StartupType Disabled -EA 0 }"</Path></RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add"><Order>5</Order><Path>reg add HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU /v NoAutoUpdate /t REG_DWORD /d 1 /f</Path></RunSynchronousCommand>
+      </RunSynchronous>
+    </component>
+  </settings>
   <settings pass="oobeSystem">
     <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
       <AutoLogon>

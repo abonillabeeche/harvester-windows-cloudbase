@@ -109,8 +109,19 @@ build, *before* anything else runs — stop and disable `wuauserv`, `UsoSvc`,
 `WaaSMedicSvc`, `InstallService` and `DoSvc`, and set the `WindowsStore`
 `AutoDownload=2` / `WindowsUpdate` `NoAutoUpdate=1` policies. The AppX state
 then stays exactly as the install media shipped it and generalize is satisfied.
+
+Chromium Edge needs its own freeze: it updates itself through **Edge Update**
+(`edgeupdate`/`edgeupdatem` services and the `MicrosoftEdgeUpdate*` scheduled
+tasks), which none of the services above control. On Server 2022 this was seen
+updating Edge to a newer version for Administrator only during the build
+(`Microsoft.MicrosoftEdge.Stable_154.0.4258.53 … was installed for a user, but
+not provisioned for all users`). The 2022 answer file therefore freezes Edge
+Update and Windows Update in the **specialize** pass, which runs as SYSTEM
+before the first logon, and step 0a repeats the Edge freeze for media whose
+answer file does not have it.
+
 Step 5b writes `C:\Windows\Setup\Scripts\SetupComplete.cmd`, which Windows Setup
-runs once on every clone of the image, to put servicing back — so the golden
+runs once on every clone of the image, to put servicing back (Edge Update included) — so the golden
 image does not ship with Windows Update permanently disabled.
 
 > **Gotcha — do not try to repair the drift after the fact.** Earlier revisions
@@ -237,6 +248,23 @@ the mitigation. If it recurs, delete the VM + rootdisk and retry.
   VM.
 - Confirm the consumer VM actually has a cloud-config / user-data attached
   (KubeVirt `cloudInitNoCloud` or a Harvester cloud-config template).
+
+## Shrink Job: "Can't have a partition outside the disk!"
+
+**Symptom:** the shrink Job fails at `mapping partitions...` with
+`device-mapper: reload ioctl on src2 ... failed: Invalid argument`,
+`Can't have a partition outside the disk!` and
+`ERROR: no NTFS partition found to shrink`.
+
+**Cause:** the source PVC's block device reports **4096-byte logical sectors**
+on the host (`blockdev --getss` = 4096; seen with Portworx `pxd` volumes),
+while Windows wrote its partition table in 512-byte units, because the guest
+sees the QEMU default of 512-byte sectors. Every Linux tool then reads the
+partition offsets 8x too large. The disk itself is fine — Windows boots from it.
+
+**Fix:** `entrypoint.sh` checks the sector size and, if it is not 512, maps the
+device through a loop device created with `losetup --sector-size 512` before
+touching the partition table. Nothing to configure.
 
 ## Cloud-config doesn't show up in the Harvester UI's "Cloud Config" tab
 
