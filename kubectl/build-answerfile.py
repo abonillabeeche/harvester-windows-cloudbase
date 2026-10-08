@@ -47,6 +47,14 @@ Usage
     ./build-answerfile.py --windows-version 2025
     ./build-answerfile.py -w 2022 [Autounattend-2022.xml] [bootstrap.ps1] [-o out.xml]
     ./build-answerfile.py -w 2025 --edition 'Windows Server 2025 SERVERDATACENTER'
+    ./build-answerfile.py -w 2025 --flavor coriolis   # Coriolis OSMorphing worker
+
+Flavor
+------
+`--flavor coriolis` sets `$Flavor = 'coriolis'` in the embedded bootstrap.ps1,
+which builds a Coriolis OSMorphing worker image instead of the general-purpose
+one (see `docs/coriolis-worker.md`). Output then defaults to
+`Autounattend-selfcontained-coriolis-<version>.xml`.
 """
 import argparse
 import base64
@@ -59,6 +67,7 @@ from xml.sax.saxutils import escape
 CHUNK = 700  # base64 chars per echo; keeps each <CommandLine> well under 1024
 B64 = r"C:\Windows\Temp\bootstrap.b64"
 PS1 = r"C:\bootstrap.ps1"
+FLAVORS = ("standard", "coriolis")
 
 # /IMAGE/NAME must match an image name inside the ISO's install.wim byte for
 # byte. These are the Desktop Experience ("with GUI") editions, which is what
@@ -122,6 +131,9 @@ def main() -> None:
     ap.add_argument("--edition",
                     help="override /IMAGE/NAME, e.g. for Datacenter or Core "
                          f"(default per --windows-version: {EDITIONS})")
+    ap.add_argument("--flavor", choices=FLAVORS, default="standard",
+                    help="image flavor baked into bootstrap.ps1 "
+                         "(coriolis = Coriolis OSMorphing worker)")
     ap.add_argument("autounattend", nargs="?",
                     help="default: Autounattend-<windows-version>.xml")
     ap.add_argument("bootstrap", nargs="?",
@@ -135,12 +147,18 @@ def main() -> None:
     if args.autounattend is None:
         args.autounattend = os.path.join(here, f"Autounattend-{ver}.xml")
     if args.output is None:
-        args.output = os.path.join(here, f"Autounattend-selfcontained-{ver}.xml")
+        infix = "" if args.flavor == "standard" else f"{args.flavor}-"
+        args.output = os.path.join(here, f"Autounattend-selfcontained-{infix}{ver}.xml")
 
     with open(args.autounattend, "r", encoding="utf-8") as f:
         au = f.read()
     with open(args.bootstrap, "rb") as f:
         ps1 = f.read()
+
+    ps1, n = re.subn(rb"^\$Flavor = '[a-z]+'", f"$Flavor = '{args.flavor}'".encode(),
+                     ps1, count=1, flags=re.M)
+    if n != 1:
+        sys.exit("ERROR: expected a `$Flavor = '...'` line in bootstrap.ps1.")
 
     # Pin the edition even when the base file already names it -- the base files
     # are per-version, but this keeps --edition working and catches a base file
@@ -174,7 +192,7 @@ def main() -> None:
 
     longest = max(len(m) for m in re.findall(r"<CommandLine>(.*?)</CommandLine>",
                                              new_au, flags=re.S))
-    print(f"wrote {args.output}")
+    print(f"wrote {args.output} (flavor: {args.flavor})")
     print(f"  bootstrap.ps1: {len(ps1)} bytes -> "
           f"{len(base64.b64encode(ps1))} base64 chars in "
           f"{len(textwrap.wrap(base64.b64encode(ps1).decode(), CHUNK))} chunks")

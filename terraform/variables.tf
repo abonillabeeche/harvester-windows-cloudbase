@@ -20,6 +20,17 @@ variable "windows_version" {
   }
 }
 
+variable "flavor" {
+  description = "Image flavor: \"standard\" (general-purpose golden image) or \"coriolis\" (a Coriolis OSMorphing worker: NoCloud-only Cloudbase-Init with UserDataPlugin + ConfigWinRMListenerPlugin, WinRM HTTPS 5986 with Basic auth baked in). See docs/coriolis-worker.md."
+  type        = string
+  default     = "standard"
+
+  validation {
+    condition     = contains(["standard", "coriolis"], var.flavor)
+    error_message = "flavor must be one of: standard, coriolis."
+  }
+}
+
 variable "windows_iso_image_ref" {
   description = "Harvester VirtualMachineImage reference for the Windows install ISO, as '<namespace>/<image-name>'."
   type        = string
@@ -38,7 +49,7 @@ variable "windows_product_key" {
 }
 
 variable "output_image_name" {
-  description = "Name of the resulting VirtualMachineImage. Leave null to derive it from windows_version (win2022-cloudbase / win2025-cloudbase / win11-cloudbase)."
+  description = "Name of the resulting VirtualMachineImage. Leave null to derive it from windows_version and flavor (win2025-cloudbase, or win2025-coriolis for flavor=coriolis)."
   type        = string
   default     = null
 }

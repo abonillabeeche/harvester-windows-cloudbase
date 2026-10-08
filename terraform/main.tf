@@ -24,8 +24,13 @@ locals {
     "w11"  = "win11-cloudbase"
   }
 
-  windows_edition   = var.windows_edition != null ? var.windows_edition : local.default_editions[var.windows_version]
-  output_image_name = var.output_image_name != null ? var.output_image_name : local.default_image_names[var.windows_version]
+  windows_edition = var.windows_edition != null ? var.windows_edition : local.default_editions[var.windows_version]
+  output_image_name = (var.output_image_name != null
+    ? var.output_image_name
+    : (var.flavor == "standard"
+      ? local.default_image_names[var.windows_version]
+    : "win${var.windows_version}-${var.flavor}")
+  )
 
   # Windows 11 is the only version that requires UEFI + Secure Boot + vTPM and
   # the compat-check bypasses, and the only one that needs a product key in the
@@ -50,6 +55,7 @@ locals {
   })
 
   bootstrap = templatefile("${path.module}/bootstrap.ps1.tftpl", {
+    flavor                 = var.flavor
     install_openssh        = var.install_openssh
     authorized_ssh_key     = var.authorized_ssh_key
     cloudbase_init_msi_url = var.cloudbase_init_msi_url

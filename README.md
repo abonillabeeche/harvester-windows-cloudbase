@@ -27,7 +27,7 @@ The image ships with:
 | [`kubectl/`](kubectl/) | Copy-paste-apply build: answer files, `bootstrap.ps1`, build-VM + export manifests, and `build-answerfile.py` |
 | [`terraform/`](terraform/) | One `terraform apply` that templates, builds, waits, and exports |
 | [`shrink-export/`](shrink-export/) | A parameterized Job to compact/shrink any disk PVC and register it as an image |
-| [`docs/`](docs/) | Architecture, per-version specifics, the v1.9 UI sysprep flow, sizing/export, and troubleshooting |
+| [`docs/`](docs/) | Architecture, per-version specifics, the v1.9 UI sysprep flow, sizing/export, the Coriolis worker flavor, and troubleshooting |
 
 ## Prerequisites
 
@@ -106,6 +106,7 @@ contents. No CLI, no clone; open it straight from the repo:
 | Windows Server 2022 | [`kubectl/Autounattend-selfcontained-2022.xml`](kubectl/Autounattend-selfcontained-2022.xml) |
 | Windows Server 2025 | [`kubectl/Autounattend-selfcontained-2025.xml`](kubectl/Autounattend-selfcontained-2025.xml) |
 | Windows 11 | [`kubectl/Autounattend-selfcontained-w11.xml`](kubectl/Autounattend-selfcontained-w11.xml) |
+| **Coriolis OSMorphing worker** (Server 2025 / 2022) | [`kubectl/Autounattend-selfcontained-coriolis-2025.xml`](kubectl/Autounattend-selfcontained-coriolis-2025.xml) / [`-coriolis-2022.xml`](kubectl/Autounattend-selfcontained-coriolis-2022.xml) — see [docs/coriolis-worker.md](docs/coriolis-worker.md) |
 
 Getting the version wrong is not cosmetic — the edition string inside has to
 match your ISO's `install.wim` exactly, or Setup stops on the edition picker and
@@ -281,6 +282,7 @@ Key variables (full list in [`terraform/variables.tf`](terraform/variables.tf)):
 | `storage_class` | `harvester-longhorn` | StorageClass for the rootdisk + exported image (use any class you've tested) |
 | `rootdisk_gib` | `36` | Golden image disk size (kept small; grows on deploy) |
 | `install_openssh` | `false` | Bake OpenSSH into the image (adds ~6 min) |
+| `flavor` | `standard` | `coriolis` builds a Coriolis OSMorphing worker image (`win<ver>-coriolis`) — see [docs/coriolis-worker.md](docs/coriolis-worker.md) |
 
 Windows 11:
 
@@ -335,6 +337,9 @@ covers the edition strings, how to verify them against your own media, and the
   *Windows Unattended & Sysprep* form and the single-file answer file.
 - **[docs/shrink-and-export.md](docs/shrink-and-export.md)** — image sizing;
   compacting/shrinking a disk and registering it as an image.
+- **[docs/coriolis-worker.md](docs/coriolis-worker.md)** — the `coriolis`
+  flavor: a Windows OSMorphing worker image for Coriolis migrations into
+  Harvester (WinRM HTTPS/Basic baked in, NoCloud-only Cloudbase-Init).
 - **[docs/troubleshooting.md](docs/troubleshooting.md)** — every symptom hit
   during validation, with fixes.
 

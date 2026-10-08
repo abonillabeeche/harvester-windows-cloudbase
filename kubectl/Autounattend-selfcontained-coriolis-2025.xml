@@ -9,8 +9,12 @@
       <UserLocale>en-US</UserLocale>
     </component>
     <component name="Microsoft-Windows-PnpCustomizationsWinPE" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
-      <!-- Load VMDP virtio-scsi/blk drivers in WinPE so Setup sees a `bus: scsi`
-           rootdisk. Drop this block only if you set the rootdisk to `bus: sata`. -->
+      <!-- Load the VMDP virtio-scsi/blk drivers (pvvxscsi/vioscsi) in WinPE so
+           Setup can see a virtio-scsi rootdisk. The VMDP CD letter shifts in
+           WinPE, so scan the likely optical-drive letters; missing paths are
+           skipped. Required only when the rootdisk uses `bus: scsi` (fast
+           path). A `bus: sata` rootdisk installs on native AHCI and needs no
+           driver injection, but is noticeably slower. -->
       <!-- Point at the VMDP CD's exact nested driver folder, NOT the CD root.
            A bare D:\ makes Setup walk that whole volume looking for INFs - and
            one of D:-G: is the multi-GB Windows install ISO, while the VMDP CD
@@ -40,14 +44,12 @@
         <WillShowUI>OnError</WillShowUI>
         <Disk wcm:action="add">
           <CreatePartitions>
-            <CreatePartition wcm:action="add"><Order>1</Order><Type>EFI</Type><Size>300</Size></CreatePartition>
-            <CreatePartition wcm:action="add"><Order>2</Order><Type>MSR</Type><Size>128</Size></CreatePartition>
-            <CreatePartition wcm:action="add"><Order>3</Order><Extend>true</Extend><Type>Primary</Type></CreatePartition>
+            <CreatePartition wcm:action="add"><Order>1</Order><Type>Primary</Type><Size>500</Size></CreatePartition>
+            <CreatePartition wcm:action="add"><Order>2</Order><Extend>true</Extend><Type>Primary</Type></CreatePartition>
           </CreatePartitions>
           <ModifyPartitions>
-            <ModifyPartition wcm:action="add"><Format>FAT32</Format><Label>System</Label><Order>1</Order><PartitionID>1</PartitionID></ModifyPartition>
-            <ModifyPartition wcm:action="add"><Order>2</Order><PartitionID>2</PartitionID></ModifyPartition>
-            <ModifyPartition wcm:action="add"><Format>NTFS</Format><Label>Windows</Label><Letter>C</Letter><Order>3</Order><PartitionID>3</PartitionID></ModifyPartition>
+            <ModifyPartition wcm:action="add"><Active>true</Active><Format>NTFS</Format><Label>System</Label><Order>1</Order><PartitionID>1</PartitionID></ModifyPartition>
+            <ModifyPartition wcm:action="add"><Format>NTFS</Format><Label>Windows</Label><Letter>C</Letter><Order>2</Order><PartitionID>2</PartitionID></ModifyPartition>
           </ModifyPartitions>
           <DiskID>0</DiskID>
           <WillWipeDisk>true</WillWipeDisk>
@@ -58,31 +60,17 @@
           <InstallFrom>
             <MetaData wcm:action="add">
               <Key>/IMAGE/NAME</Key>
-              <Value>Windows 11 Pro</Value>
+              <Value>Windows Server 2025 SERVERSTANDARD</Value>
             </MetaData>
           </InstallFrom>
-          <InstallTo><DiskID>0</DiskID><PartitionID>3</PartitionID></InstallTo>
+          <InstallTo><DiskID>0</DiskID><PartitionID>2</PartitionID></InstallTo>
         </OSImage>
       </ImageInstall>
       <UserData>
-        <ProductKey>
-          <Key>W269N-WFGWX-YVC9B-4J6C9-T83GX</Key>
-          <WillShowUI>OnError</WillShowUI>
-        </ProductKey>
         <AcceptEula>true</AcceptEula>
         <FullName>Administrator</FullName>
         <Organization>SUSE</Organization>
       </UserData>
-    </component>
-  </settings>
-  <settings pass="specialize">
-    <component name="Microsoft-Windows-Deployment" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
-      <RunSynchronous>
-        <RunSynchronousCommand wcm:action="add">
-          <Order>1</Order>
-          <Path>reg add HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OOBE /v BypassNRO /t REG_DWORD /d 1 /f</Path>
-        </RunSynchronousCommand>
-      </RunSynchronous>
     </component>
   </settings>
   <settings pass="oobeSystem">
@@ -103,7 +91,7 @@
           <Order>1</Order>
         </SynchronousCommand>
         <SynchronousCommand wcm:action="add">
-          <CommandLine>cmd /c echo JEVycm9yQWN0aW9uUHJlZmVyZW5jZSA9ICdDb250aW51ZScKJGxvZyA9ICdDOlx3aW5idWlsZC5sb2cnCmZ1bmN0aW9uIExvZygkbSkgewogICR0ID0gKEdldC1EYXRlKS5Ub1N0cmluZygnSEg6bW06c3MnKQogICIkdCAkbSIgfCBUZWUtT2JqZWN0IC1GaWxlUGF0aCAkbG9nIC1BcHBlbmQgfCBPdXQtSG9zdAp9CgojIEltYWdlIGZsYXZvcjogJ3N0YW5kYXJkJyAoZ2VuZXJhbC1wdXJwb3NlIGdvbGRlbiBpbWFnZSkgb3IgJ2NvcmlvbGlzJyAoYQojIENvcmlvbGlzIE9TTW9ycGhpbmcgd29ya2VyIGltYWdlIC0tIHNlZSBkb2NzL2NvcmlvbGlzLXdvcmtlci5tZCkuCiMgYnVpbGQtYW5zd2VyZmlsZS5weSAtLWZsYXZvciByZXdyaXRlcyB0aGlzIGxpbmU7IGRvIG5vdCByZWZvcm1hdCBpdC4KJEZsYXZvciA9ICdzdGFuZGFyZCcKCkxvZyAiPT09IHdpbmJ1aWxkIGJvb3RzdHJhcCBzdGFydGluZyAoZmxhdm9yOiAkRmxhdm9yKSA9PT0iCgojIDBhLiBGcmVlemUgdGhlIG1hY2hpbmUncyBzb2Z0d2FyZSBzdGF0ZSBmb3IgdGhl&gt;&gt;C:\Windows\Temp\bootstrap.b64</CommandLine>
+          <CommandLine>cmd /c echo JEVycm9yQWN0aW9uUHJlZmVyZW5jZSA9ICdDb250aW51ZScKJGxvZyA9ICdDOlx3aW5idWlsZC5sb2cnCmZ1bmN0aW9uIExvZygkbSkgewogICR0ID0gKEdldC1EYXRlKS5Ub1N0cmluZygnSEg6bW06c3MnKQogICIkdCAkbSIgfCBUZWUtT2JqZWN0IC1GaWxlUGF0aCAkbG9nIC1BcHBlbmQgfCBPdXQtSG9zdAp9CgojIEltYWdlIGZsYXZvcjogJ3N0YW5kYXJkJyAoZ2VuZXJhbC1wdXJwb3NlIGdvbGRlbiBpbWFnZSkgb3IgJ2NvcmlvbGlzJyAoYQojIENvcmlvbGlzIE9TTW9ycGhpbmcgd29ya2VyIGltYWdlIC0tIHNlZSBkb2NzL2NvcmlvbGlzLXdvcmtlci5tZCkuCiMgYnVpbGQtYW5zd2VyZmlsZS5weSAtLWZsYXZvciByZXdyaXRlcyB0aGlzIGxpbmU7IGRvIG5vdCByZWZvcm1hdCBpdC4KJEZsYXZvciA9ICdjb3Jpb2xpcycKCkxvZyAiPT09IHdpbmJ1aWxkIGJvb3RzdHJhcCBzdGFydGluZyAoZmxhdm9yOiAkRmxhdm9yKSA9PT0iCgojIDBhLiBGcmVlemUgdGhlIG1hY2hpbmUncyBzb2Z0d2FyZSBzdGF0ZSBmb3IgdGhl&gt;&gt;C:\Windows\Temp\bootstrap.b64</CommandLine>
           <Description>winbuild step 2</Description>
           <Order>2</Order>
         </SynchronousCommand>

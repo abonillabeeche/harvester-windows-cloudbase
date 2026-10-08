@@ -62,15 +62,15 @@ spec:
             - name: SRC_DEV
               value: /dev/src
             - name: IMAGE_NAME
-              value: REPLACE_IMAGE_NAME          # e.g. win2022-cloudbase-min
+              value: win2025-raw          # e.g. win2022-cloudbase-min
             - name: IMAGE_DISPLAY
-              value: REPLACE_IMAGE_DISPLAY        # e.g. "Windows 2022 (minimized)"
+              value: win2025-cbi-vmdp        # e.g. "Windows 2022 (minimized)"
             # Where the image is STORED:
             #   backingimage = Longhorn backing image (Harvester default).
             #   cdi          = a CDI-imported PVC; set TARGET_STORAGECLASS to land
             #                  it on any tested CSI class instead of Longhorn.
             - name: BACKEND
-              value: "backingimage"               # backingimage | cdi
+              value: "cdi"               # backingimage | cdi
             # Only used when BACKEND=cdi. Leave empty for the cluster-default
             # StorageClass. Point it at a tested StorageClass (or use Longhorn).
             - name: TARGET_STORAGECLASS
@@ -105,7 +105,7 @@ spec:
       volumes:
         - name: src
           persistentVolumeClaim:
-            claimName: REPLACE_SOURCE_PVC        # e.g. winbuild-rootdisk
+            claimName: windows-2025-rootdisk-rj7ux       # e.g. winbuild-rootdisk
         - name: scripts
           configMap:
             name: disk-shrink-script

@@ -47,14 +47,17 @@ kubectl -n "$NS" create configmap disk-shrink-script \
   --from-file=entrypoint.sh=entrypoint.sh
 ```
 
-**2. Fill in the placeholders** in `shrink-and-upload-job.yaml` (set every
-`namespace:` to `$NS`, then the env values):
+**2. Set your values** in `shrink-and-upload-job.yaml` (set every
+`namespace:` to `$NS`, then the env values). The file ships filled in with a
+worked example — compacting a Server 2025 build rootdisk
+(`windows-2025-rootdisk-rj7ux`) into a CDI image `win2025-raw` on the default
+StorageClass — so replace those with your own:
 
 | Field | Set to |
 |---|---|
-| `REPLACE_SOURCE_PVC` | your rootdisk PVC, e.g. `winbuild-rootdisk` |
-| `REPLACE_IMAGE_NAME` | new image `metadata.name` |
-| `REPLACE_IMAGE_DISPLAY` | new image displayName |
+| `claimName` (source PVC) | your rootdisk PVC, e.g. `winbuild-rootdisk` |
+| `IMAGE_NAME` | new image `metadata.name` |
+| `IMAGE_DISPLAY` | new image displayName |
 | `MODE` | `compact` (safe) or `shrink` (min virtual size) |
 | `BACKEND` | `backingimage` (Longhorn) or `cdi` (any tested class) |
 | `TARGET_STORAGECLASS` | *cdi only:* a tested StorageClass (or empty for the default) |
